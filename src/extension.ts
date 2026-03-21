@@ -116,9 +116,12 @@ function handleUri(uri: vscode.Uri): void {
     targetUri = vscode.Uri.parse(
       `vscode-remote://ssh-remote+${remote}${remotePath}`
     );
-  } else {
+  } else if (folder) {
     // Local workspace
     targetUri = vscode.Uri.file(folder);
+  } else {
+    vscode.window.showErrorMessage("dashboard-helper: missing folder parameter");
+    return;
   }
 
   // forceNewWindow: true — never overwrites an existing open session

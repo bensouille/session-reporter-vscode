@@ -9,6 +9,10 @@
     "vscode": "^1.74.0"
   },
   "categories": ["Other"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bensouille/dashboard-helper-vscode.git"
+  },
   "activationEvents": [
     "onUri",
     "onStartupFinished"
