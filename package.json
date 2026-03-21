@@ -1,0 +1,57 @@
+{
+  "name": "dashboard-helper",
+  "displayName": "Dashboard Helper",
+  "description": "Companion extension for the personal developer dashboard — opens remote folders in new windows and syncs active workspaces.",
+  "version": "0.1.0",
+  "publisher": "dashboard",
+  "private": true,
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [
+    "onUri",
+    "onStartupFinished"
+  ],
+  "extensionKind": ["ui", "workspace"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Dashboard Helper",
+      "properties": {
+        "dashboardHelper.backendUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Dashboard backend URL, e.g. `https://dashboard.example.com`"
+        },
+        "dashboardHelper.agentToken": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Agent token (`AGENT_TOKEN` env var on the backend)"
+        },
+        "dashboardHelper.hostAlias": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "SSH config alias for this host (e.g. `MiniPC`). Defaults to the system hostname."
+        },
+        "dashboardHelper.reportInterval": {
+          "type": "number",
+          "default": 60,
+          "minimum": 10,
+          "markdownDescription": "Interval in seconds between workspace heartbeats (default: 60)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx @vscode/vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.74.0",
+    "typescript": "^5.4.0"
+  }
+}
