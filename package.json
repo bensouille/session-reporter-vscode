@@ -1,14 +1,18 @@
 {
   "name": "dashboard-helper",
   "displayName": "Dashboard Helper",
-  "description": "Companion extension for the personal developer dashboard — opens remote folders in new windows and syncs active workspaces.",
+  "description": "Open remote SSH folders in a new VS Code window and sync active workspaces to your self-hosted developer dashboard.",
   "version": "0.1.0",
-  "publisher": "dashboard",
-  "private": true,
+  "publisher": "devdashboard",
   "engines": {
     "vscode": "^1.74.0"
   },
   "categories": ["Other"],
+  "keywords": ["remote", "ssh", "dashboard", "workspace", "session"],
+  "homepage": "https://github.com/bensouille/dashboard-helper-vscode#readme",
+  "bugs": {
+    "url": "https://github.com/bensouille/dashboard-helper-vscode/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/bensouille/dashboard-helper-vscode.git"
@@ -26,23 +30,23 @@
         "dashboardHelper.backendUrl": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Dashboard backend URL, e.g. `https://dashboard.example.com`"
+          "markdownDescription": "URL of your self-hosted dashboard backend, e.g. `https://dashboard.example.com`"
         },
         "dashboardHelper.agentToken": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Agent token (`AGENT_TOKEN` env var on the backend)"
+          "markdownDescription": "Secret token matching the `AGENT_TOKEN` environment variable on the backend"
         },
         "dashboardHelper.hostAlias": {
           "type": "string",
           "default": "",
-          "markdownDescription": "SSH config alias for this host (e.g. `MiniPC`). Defaults to the system hostname."
+          "markdownDescription": "Identifier for this host (e.g. SSH config alias). Defaults to the system hostname."
         },
         "dashboardHelper.reportInterval": {
           "type": "number",
           "default": 60,
           "minimum": 10,
-          "markdownDescription": "Interval in seconds between workspace heartbeats (default: 60)"
+          "markdownDescription": "How often (in seconds) to send a workspace heartbeat to the backend (default: 60)"
         }
       }
     }

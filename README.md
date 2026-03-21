@@ -1,100 +1,154 @@
 # Dashboard Helper — VS Code Extension
 
-Companion extension for the [personal developer dashboard](https://github.com/steph/dashboard).
+A companion VS Code extension for [self-hosted developer dashboards](https://github.com/bensouille/dashboard-helper-vscode). It does two things:
+
+1. **URI Handler** — opens remote SSH folders in a **new** VS Code window via `vscode://dashboard-helper/open` links
+2. **Workspace Reporter** — automatically syncs your active VS Code sessions to the dashboard backend
+
+---
 
 ## Features
 
-### 1. URI Handler — open remote folders in a new window
+### 1. URI Handler — open any remote folder in a new window
 
-Handles `vscode://dashboard-helper/open` URIs emitted by the dashboard frontend. Uses `vscode.openFolder` with `forceNewWindow: true` — **guaranteed** to never overwrite an existing open session.
+Handles `vscode://dashboard-helper/open` URIs. Uses `vscode.openFolder` with `forceNewWindow: true`, so it **never** overwrites an existing open session.
 
 **URL format:**
 
 ```
-# Remote SSH workspace (most common)
-vscode://dashboard-helper/open?remote=HOST_ALIAS&folder=/absolute/path
+# Remote SSH workspace
+vscode://dashboard-helper/open?remote=my-server&folder=/home/user/myproject
 
 # Local workspace
 vscode://dashboard-helper/open?folder=/absolute/path
 
-# Remote host only (no folder — opens connection root)
-vscode://dashboard-helper/open?remote=HOST_ALIAS
+# Remote host root (no specific folder)
+vscode://dashboard-helper/open?remote=my-server
 ```
 
-The `remote` parameter is the SSH config alias as defined in `~/.ssh/config` on your local machine.
+The `remote` parameter is an SSH config alias defined in `~/.ssh/config` on your **local** machine. No additional configuration is required for the URI handler to work.
 
-### 2. Workspace Reporter — sync active sessions to the dashboard
+### 2. Workspace Reporter — keep the dashboard in sync
 
-When `dashboardHelper.backendUrl` and `dashboardHelper.agentToken` are configured (typically in remote workspace settings), the extension:
+When `dashboardHelper.backendUrl` and `dashboardHelper.agentToken` are set (typically in remote workspace settings), the extension:
 
 - Reports the current workspace as **active** on startup
 - Marks it **inactive** when the window closes
-- Sends a heartbeat every 60 seconds
+- Sends a heartbeat at a configurable interval (default: 60 s)
 
-This is a lightweight complement to the `agent.py` script — no system metrics, just session tracking.
+This is a lightweight alternative to running the full `agent.py` — no system metrics, just session tracking.
+
+---
 
 ## Installation
 
+### Prerequisites
+
+- VS Code 1.74+
+- A running instance of the [developer dashboard backend](https://github.com/bensouille/dashboard-helper-vscode) (for the reporter feature only)
+
+### Build from source
+
 ```bash
+git clone https://github.com/bensouille/dashboard-helper-vscode.git
+cd dashboard-helper-vscode
 npm install
 npm run compile
-npm run package          # produces dashboard-helper-0.1.0.vsix
+npm run package          # → dashboard-helper-0.1.0.vsix
 ```
 
-In VS Code: **Extensions → ⋯ → Install from VSIX…**
+### Install the `.vsix`
 
-Or via CLI:
+**Via VS Code UI:** Extensions panel → `⋯` menu → *Install from VSIX…*
+
+**Via CLI (local machine):**
 ```bash
 code --install-extension dashboard-helper-0.1.0.vsix
 ```
 
+**Via CLI (SSH remote host):**
+```bash
+code --install-extension dashboard-helper-0.1.0.vsix
+# or, from the remote machine directly:
+code-server --install-extension dashboard-helper-0.1.0.vsix
+```
+
+Install on **both** your local machine (for the URI handler) and every remote host (for session reporting).
+
+---
+
 ## Configuration
+
+All settings live under the `dashboardHelper` namespace.
 
 | Setting | Default | Description |
 |---|---|---|
-| `dashboardHelper.backendUrl` | `""` | Dashboard backend URL, e.g. `https://dashboard.example.com` |
-| `dashboardHelper.agentToken` | `""` | `AGENT_TOKEN` value from the backend `.env` |
-| `dashboardHelper.hostAlias` | `""` | SSH alias for this host (defaults to system hostname) |
-| `dashboardHelper.reportInterval` | `60` | Heartbeat interval in seconds |
+| `dashboardHelper.backendUrl` | `""` | URL of your dashboard backend, e.g. `https://dashboard.example.com` |
+| `dashboardHelper.agentToken` | `""` | Secret token matching `AGENT_TOKEN` in the backend `.env` |
+| `dashboardHelper.hostAlias` | `""` | Identifier for this host (defaults to system hostname) |
+| `dashboardHelper.reportInterval` | `60` | Heartbeat interval in seconds (min: 10) |
 
-The URI handler works without any configuration. The workspace reporter only activates when both `backendUrl` and `agentToken` are set.
+> The URI handler works **without any configuration**. The workspace reporter only activates when `backendUrl` and `agentToken` are both set.
 
-### Typical setup on a remote host
+### Setup on a remote host
 
-Add to the remote workspace's `.vscode/settings.json` (or remote user settings):
+Add to the remote workspace `.vscode/settings.json` or remote user settings:
 
 ```json
 {
   "dashboardHelper.backendUrl": "https://dashboard.example.com",
-  "dashboardHelper.agentToken": "your-32-byte-hex-token",
-  "dashboardHelper.hostAlias": "MiniPC"
+  "dashboardHelper.agentToken": "your-secret-token",
+  "dashboardHelper.hostAlias": "my-server"
 }
 ```
 
+`hostAlias` should match the SSH `Host` alias you use in `~/.ssh/config` so that the dashboard can generate correct `vscode://` links back to this host.
+
+### Multi-host setup
+
+Install the same `.vsix` on every remote host. Each host reports independently using its own `hostAlias`. The dashboard backend deduplicates sessions by `(hostname, repo)`.
+
+```
+Local machine      →  URI handler active  (opens remote windows from dashboard links)
+Remote host A      →  Workspace reporter active
+Remote host B      →  Workspace reporter active
+...
+```
+
+---
+
 ## Backend API
 
-The extension calls one endpoint on the dashboard backend:
+The extension calls one endpoint:
 
 ```
 POST /api/v1/hosts/session-sync
-X-Agent-Token: <token>
+X-Agent-Token: <your-token>
 Content-Type: application/json
 
 {
-  "hostname": "MiniPC",
-  "repo": "/home/steph/myproject",
-  "vscode_url": "vscode://dashboard-helper/open?remote=MiniPC&folder=%2Fhome%2Fsteph%2Fmyproject",
+  "hostname": "my-server",
+  "repo": "/home/user/myproject",
+  "vscode_url": "vscode://dashboard-helper/open?remote=my-server&folder=%2Fhome%2Fuser%2Fmyproject",
   "is_active": true
 }
 ```
 
-## Architecture note
+Setting `is_active: false` marks the session as closed (sent automatically on window/extension deactivation).
 
-This extension has **two deployment contexts**:
+---
 
-| Context | Where it runs | What it does |
-|---|---|---|
-| Local machine | VS Code UI process | Handles `vscode://` URIs, opens remote folders |
-| Remote host | VS Code extension host | Reports active workspaces to backend |
+## Development
 
-Both can run simultaneously: install once on your local machine, and the same `.vsix` installed on each remote will activate the reporter there too.
+```bash
+npm run watch    # recompile on save
+```
+
+Press `F5` in VS Code to launch an Extension Development Host for live debugging.
+
+---
+
+## License
+
+MIT
+
