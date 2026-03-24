@@ -171,20 +171,17 @@ function syncSession(
     ? folder.uri.fsPath
     : folder.uri.path;
 
-  // Derive the remote authority from the workspace URI when running on a remote host.
-  // folder.uri.authority for a remote workspace is "ssh-remote+root@minipc" — stripping
-  // the "ssh-remote+" prefix gives the exact connection string VS Code uses to hash the
-  // workspace identity (e.g. "root@minipc").  This is more reliable than os.hostname()
-  // which only gives the bare machine name without the SSH user.
-  let remote: string;
-  if (folder.uri.scheme === "vscode-remote" && folder.uri.authority.startsWith("ssh-remote+")) {
-    remote = folder.uri.authority.slice("ssh-remote+".length); // "root@minipc"
-  } else {
-    remote = config.get<string>("hostAlias", "").trim() || os.hostname();
-  }
-
   // hostname for the checkin payload (bare machine name, no user)
   const hostname = config.get<string>("hostAlias", "").trim() || os.hostname();
+
+  // Build the remote authority for the vscode:// URL.
+  // When running as Workspace (on the remote host), folder.uri.scheme is "file"
+  // and we only know the bare hostname.  The sshUser setting lets the admin specify
+  // the SSH user so the generated URL matches VS Code's workspace storage hash.
+  // Priority: explicit sshUser setting > bare hostname (backend will not overwrite
+  // an existing URL that already contains user@host).
+  const sshUser = config.get<string>("sshUser", "").trim();
+  const remote = sshUser ? `${sshUser}@${hostname}` : hostname;
 
   // Generate the canonical URL — remote must match the SSH authority exactly
   const vscodeUrl =
