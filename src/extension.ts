@@ -20,16 +20,23 @@ import * as os from "os";
 import * as https from "https";
 import * as http from "http";
 
+let log: vscode.OutputChannel;
+
 // ---------------------------------------------------------------------------
 // Activation
 // ---------------------------------------------------------------------------
 
 export function activate(context: vscode.ExtensionContext): void {
+  log = vscode.window.createOutputChannel("Dashboard Helper");
+  context.subscriptions.push(log);
+  log.appendLine(`[activate] extension id=${context.extension.id}`);
+
   // ── 1. URI handler ────────────────────────────────────────────────────────
   // Always registered; VS Code only routes it when the extension is local.
   context.subscriptions.push(
     vscode.window.registerUriHandler({ handleUri })
   );
+  log.appendLine("[activate] URI handler registered for vscode://dashboard-helper");
 
   // ── 2. Workspace reporter ─────────────────────────────────────────────────
   // Only meaningful when there are open workspace folders (i.e. on a remote or
@@ -90,10 +97,12 @@ export function deactivate(): void {}
 // ---------------------------------------------------------------------------
 
 function handleUri(uri: vscode.Uri): void {
+  log.appendLine(`[handleUri] received: ${uri.toString()}`);
+
   if (uri.path !== "/open") {
-    vscode.window.showErrorMessage(
-      `Dashboard Helper: unknown path "${uri.path}"`
-    );
+    const msg = `Dashboard Helper: unknown path "${uri.path}"`;
+    log.appendLine(`[handleUri] error: ${msg}`);
+    vscode.window.showErrorMessage(msg);
     return;
   }
 
@@ -101,33 +110,40 @@ function handleUri(uri: vscode.Uri): void {
   const folder = params.get("folder") ?? undefined;
   const remote = params.get("remote") ?? undefined;
 
+  log.appendLine(`[handleUri] remote=${remote} folder=${folder}`);
+
   if (!folder && !remote) {
-    vscode.window.showErrorMessage(
-      "Dashboard Helper: at least one of 'folder' or 'remote' is required"
-    );
+    const msg = "Dashboard Helper: at least one of 'folder' or 'remote' is required";
+    log.appendLine(`[handleUri] error: ${msg}`);
+    vscode.window.showErrorMessage(msg);
     return;
   }
 
   let targetUri: vscode.Uri;
 
   if (remote) {
-    // Remote SSH workspace — folder defaults to "/" when not provided
     const remotePath = folder || "/";
-    targetUri = vscode.Uri.parse(
-      `vscode-remote://ssh-remote+${remote}${remotePath}`
-    );
+    const raw = `vscode-remote://ssh-remote+${remote}${remotePath}`;
+    log.appendLine(`[handleUri] opening remote URI: ${raw}`);
+    targetUri = vscode.Uri.parse(raw);
   } else if (folder) {
-    // Local workspace
+    log.appendLine(`[handleUri] opening local folder: ${folder}`);
     targetUri = vscode.Uri.file(folder);
   } else {
     vscode.window.showErrorMessage("dashboard-helper: missing folder parameter");
     return;
   }
 
-  // forceNewWindow: true — never overwrites an existing open session
+  log.appendLine(`[handleUri] calling vscode.openFolder with forceNewWindow=true`);
   vscode.commands.executeCommand("vscode.openFolder", targetUri, {
     forceNewWindow: true,
-  });
+  }).then(
+    () => log.appendLine("[handleUri] openFolder command executed"),
+    (err) => {
+      log.appendLine(`[handleUri] openFolder error: ${err}`);
+      vscode.window.showErrorMessage(`Dashboard Helper: failed to open folder — ${err}`);
+    }
+  );
 }
 
 // ---------------------------------------------------------------------------
