@@ -4,7 +4,7 @@
  * Two responsibilities dispatched by extensionKind:
  *
  * 1. URI Handler  [extensionKind = UI]  — runs on the LOCAL client (Windows)
- *    Handles  vscode://dashboard-helper/open?remote=ALIAS&folder=/path
+ *    Handles  vscode://devdashboard.dashboard-helper/open?remote=ALIAS&folder=/path
  *    and opens the workspace in a NEW window (forceNewWindow: true).
  *
  * 2. Workspace Reporter  [extensionKind = Workspace]  — runs on the REMOTE host (Linux)
@@ -36,7 +36,7 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
       vscode.window.registerUriHandler({ handleUri })
     );
-    log.appendLine("[activate] URI handler registered → vscode://dashboard-helper/open");
+    log.appendLine("[activate] URI handler registered → vscode://devdashboard.dashboard-helper/open");
   } else {
     // ── Workspace reporter — remote host only ────────────────────────────────
     startReporter(context);
@@ -46,7 +46,7 @@ export function activate(context: vscode.ExtensionContext): void {
 export function deactivate(): void {}
 
 // ---------------------------------------------------------------------------
-// URI handler — vscode://dashboard-helper/open?remote=ALIAS&folder=PATH
+// URI handler — vscode://devdashboard.dashboard-helper/open?remote=ALIAS&folder=PATH
 // ---------------------------------------------------------------------------
 
 function handleUri(uri: vscode.Uri): void {
@@ -173,7 +173,7 @@ function syncSession(
 
   // Generate the canonical URL pointing back to this extension's URI handler
   const vscodeUrl =
-    `vscode://dashboard-helper/open` +
+    `vscode://devdashboard.dashboard-helper/open` +
     `?remote=${encodeURIComponent(hostname)}` +
     `&folder=${encodeURIComponent(repo)}`;
 
