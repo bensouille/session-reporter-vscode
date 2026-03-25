@@ -124,6 +124,51 @@ function findStoredAuthority(remote: string, remotePath: string): string | null 
   }
 }
 
+/**
+ * Check VS Code's storage.json to see if any window currently has the target
+ * URI open.  VS Code writes this file in real-time when windows open/close, so
+ * it reliably reflects the current set of open windows.
+ *
+ * Returns true  → window is open  → use forceNewWindow: false (focus it)
+ * Returns false → window not open → use forceNewWindow: true  (new window, no popup)
+ */
+function isWindowCurrentlyOpen(targetUri: vscode.Uri): boolean {
+  try {
+    // globalStoragePath = .../Code/User/globalStorage/devdashboard.dashboard-helper
+    // codeDir           = .../Code/
+    const userDir = path.dirname(path.dirname(globalStoragePath));
+    const codeDir = path.dirname(userDir);
+    const storagePath = path.join(codeDir, "storage.json");
+
+    if (!fs.existsSync(storagePath)) {
+      log.appendLine(`[isWindowCurrentlyOpen] storage.json not found at ${storagePath} — assuming not open`);
+      return false;
+    }
+
+    const storage = JSON.parse(fs.readFileSync(storagePath, "utf-8"));
+    const ws: Record<string, unknown> = storage.windowsState ?? {};
+    const openedWindows: unknown[] = [
+      ...(Array.isArray(ws.openedWindows) ? ws.openedWindows : []),
+      ...(ws.lastActiveWindow ? [ws.lastActiveWindow] : []),
+    ];
+
+    const targetStr = targetUri.toString();
+    for (const win of openedWindows) {
+      const w = win as Record<string, unknown>;
+      if (typeof w.folderUri === "string" && w.folderUri === targetStr) {
+        log.appendLine(`[isWindowCurrentlyOpen] match found: ${w.folderUri}`);
+        return true;
+      }
+    }
+
+    log.appendLine(`[isWindowCurrentlyOpen] no window open for ${targetStr}`);
+    return false;
+  } catch (e) {
+    log.appendLine(`[isWindowCurrentlyOpen] error reading storage.json: ${e} — assuming not open`);
+    return false;
+  }
+}
+
 function handleUri(uri: vscode.Uri): void {
   log.appendLine(`[handleUri] received: ${uri.toString()}`);
 
@@ -175,13 +220,15 @@ function handleUri(uri: vscode.Uri): void {
       return;
     }
 
-    // forceNewWindow: false → VS Code scans all open windows for a matching
-    // workspace URI and focuses that window.  If no match exists, it opens the
-    // folder in the current window (acceptable when switching from the browser).
-    log.appendLine(`[handleUri] openFolder with forceNewWindow=false`);
-    vscode.commands.executeCommand("vscode.openFolder", targetUri, {
-      forceNewWindow: false,
-    }).then(
+    // Decide forceNewWindow based on whether a matching window is currently open:
+    //   - window open  → forceNewWindow: false → VS Code focuses the existing window
+    //   - window closed → forceNewWindow: true  → opens in new window (avoids the
+    //                     "save workspace configuration?" popup that appears when
+    //                     forceNewWindow:false tries to replace the current window)
+    const windowIsOpen = isWindowCurrentlyOpen(targetUri);
+    const forceNewWindow = !windowIsOpen;
+    log.appendLine(`[handleUri] windowIsOpen=${windowIsOpen} → forceNewWindow=${forceNewWindow}`);
+    vscode.commands.executeCommand("vscode.openFolder", targetUri, { forceNewWindow }).then(
       () => log.appendLine("[handleUri] openFolder executed"),
       (err) => {
         log.appendLine(`[handleUri] openFolder error: ${err}`);
@@ -197,10 +244,9 @@ function handleUri(uri: vscode.Uri): void {
     return;
   }
 
-  log.appendLine(`[handleUri] openFolder with forceNewWindow=false`);
-  vscode.commands.executeCommand("vscode.openFolder", targetUri, {
-    forceNewWindow: false,
-  }).then(
+  log.appendLine(`[handleUri] forceNewWindow=${!isWindowCurrentlyOpen(targetUri)}`);
+  const forceNewWindow = !isWindowCurrentlyOpen(targetUri);
+  vscode.commands.executeCommand("vscode.openFolder", targetUri, { forceNewWindow }).then(
     () => log.appendLine("[handleUri] openFolder command executed"),
     (err) => {
       log.appendLine(`[handleUri] openFolder error: ${err}`);
