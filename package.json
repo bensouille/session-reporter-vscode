@@ -9,13 +9,13 @@
   },
   "categories": ["Other"],
   "keywords": ["remote", "ssh", "dashboard", "workspace", "session"],
-  "homepage": "https://github.com/bensouille/dashboard-helper-vscode#readme",
+  "homepage": "https://github.com/bensouille/session-reporter-vscode#readme",
   "bugs": {
-    "url": "https://github.com/bensouille/dashboard-helper-vscode/issues"
+    "url": "https://github.com/bensouille/session-reporter-vscode/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/bensouille/dashboard-helper-vscode.git"
+    "url": "https://github.com/bensouille/session-reporter-vscode.git"
   },
   "activationEvents": [
     "onUri",

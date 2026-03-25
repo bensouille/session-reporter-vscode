@@ -74,8 +74,8 @@ No data is sent to any third party. You are the sole operator of the backend.
 ### Build from source
 
 ```bash
-git clone https://github.com/bensouille/dashboard-helper-vscode.git
-cd dashboard-helper-vscode
+git clone https://github.com/bensouille/session-reporter-vscode.git
+cd session-reporter-vscode
 npm install
 npm run compile
 npm run package          # → session-reporter-0.2.0.vsix
