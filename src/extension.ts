@@ -14,10 +14,13 @@
 
 import * as vscode from "vscode";
 import * as os from "os";
+import * as fs from "fs";
+import * as path from "path";
 import * as https from "https";
 import * as http from "http";
 
 let log: vscode.OutputChannel;
+let globalStoragePath: string;
 
 // ---------------------------------------------------------------------------
 // Activation
@@ -26,6 +29,9 @@ let log: vscode.OutputChannel;
 export function activate(context: vscode.ExtensionContext): void {
   log = vscode.window.createOutputChannel("Dashboard Helper");
   context.subscriptions.push(log);
+
+  // Store for workspaceStorage scanning (UI side)
+  globalStoragePath = context.globalStorageUri.fsPath;
 
   const kind = context.extension.extensionKind;
   const kindLabel = kind === vscode.ExtensionKind.UI ? "UI (local)" : "Workspace (remote)";
@@ -48,6 +54,75 @@ export function deactivate(): void {}
 // ---------------------------------------------------------------------------
 // URI handler — vscode://devdashboard.dashboard-helper/open?remote=ALIAS&folder=PATH
 // ---------------------------------------------------------------------------
+
+/**
+ * Scan local workspaceStorage to find the exact SSH authority VS Code used
+ * for a given remote host + folder.  Returns the authority portion after
+ * "ssh-remote+" (which may be a plain hostname or a hex-encoded JSON blob).
+ */
+function findStoredAuthority(remote: string, remotePath: string): string | null {
+  try {
+    // globalStoragePath = .../Code/User/globalStorage/devdashboard.dashboard-helper
+    // target            = .../Code/User/workspaceStorage/
+    const userDir = path.dirname(path.dirname(globalStoragePath));
+    const wsStoragePath = path.join(userDir, "workspaceStorage");
+
+    if (!fs.existsSync(wsStoragePath)) {
+      log.appendLine(`[findStoredAuthority] workspaceStorage not found at ${wsStoragePath}`);
+      return null;
+    }
+
+    const normTarget = remotePath.replace(/\/+$/, "") || "/";
+    const entries = fs.readdirSync(wsStoragePath);
+
+    for (const entry of entries) {
+      const wsJsonPath = path.join(wsStoragePath, entry, "workspace.json");
+      if (!fs.existsSync(wsJsonPath)) { continue; }
+
+      try {
+        const content = JSON.parse(fs.readFileSync(wsJsonPath, "utf-8"));
+        const folderUri = content.folder as string | undefined;
+        if (!folderUri) { continue; }
+
+        const parsed = vscode.Uri.parse(folderUri);
+        if (parsed.scheme !== "vscode-remote") { continue; }
+        if (!parsed.authority.startsWith("ssh-remote+")) { continue; }
+
+        // Compare folder path (normalise trailing slashes)
+        const storedPath = parsed.path.replace(/\/+$/, "") || "/";
+        if (storedPath !== normTarget) { continue; }
+
+        const authority = parsed.authority.substring("ssh-remote+".length);
+
+        // Plain match: authority === remote hostname
+        if (authority === remote) {
+          log.appendLine(`[findStoredAuthority] plain match: ${authority}`);
+          return authority;
+        }
+
+        // Hex-encoded JSON match: {"hostName":"MiniPC"} → hex
+        try {
+          const decoded = Buffer.from(authority, "hex").toString("utf-8");
+          const json = JSON.parse(decoded);
+          if (json.hostName === remote) {
+            log.appendLine(`[findStoredAuthority] hex match: ${authority}`);
+            return authority;
+          }
+        } catch {
+          // not hex — skip
+        }
+      } catch {
+        // corrupt workspace.json — skip
+      }
+    }
+
+    log.appendLine(`[findStoredAuthority] no match for remote=${remote} path=${normTarget}`);
+    return null;
+  } catch (e) {
+    log.appendLine(`[findStoredAuthority] error scanning: ${e}`);
+    return null;
+  }
+}
 
 function handleUri(uri: vscode.Uri): void {
   log.appendLine(`[handleUri] received: ${uri.toString()}`);
@@ -76,16 +151,44 @@ function handleUri(uri: vscode.Uri): void {
 
   if (remote) {
     const remotePath = folder || "/";
-    // Modern VS Code Remote SSH encodes the SSH host as a hex-encoded JSON blob:
-    //   {"hostName":"MiniPC"} → 7b22686f73744e616d65223a224d696e695043227d
-    // The authority becomes: ssh-remote+<hex>
-    // This matches the workspace storage hash so that forceNewWindow=false can
-    // find and focus an already-open window for that workspace.
-    const hostJson = JSON.stringify({ hostName: remote });
-    const hexAuthority = Buffer.from(hostJson, "utf-8").toString("hex");
-    const raw = `vscode-remote://ssh-remote+${hexAuthority}${remotePath}`;
-    log.appendLine(`[handleUri] opening remote URI: ${raw}`);
-    targetUri = vscode.Uri.parse(raw);
+
+    // Find the exact authority from local workspaceStorage.
+    // This handles both the plain format (ssh-remote+hostname) and the newer
+    // hex-encoded JSON format (ssh-remote+7b22...7d) automatically.
+    const storedAuthority = findStoredAuthority(remote, remotePath);
+
+    if (storedAuthority) {
+      const raw = `vscode-remote://ssh-remote+${storedAuthority}${remotePath}`;
+      log.appendLine(`[handleUri] using stored authority: ${raw}`);
+      targetUri = vscode.Uri.parse(raw);
+    } else {
+      // Fallback: plain hostname (works for older connections)
+      const raw = `vscode-remote://ssh-remote+${remote}${remotePath}`;
+      log.appendLine(`[handleUri] no stored authority, using plain: ${raw}`);
+      targetUri = vscode.Uri.parse(raw);
+    }
+
+    // If current window already has this workspace, nothing to do
+    const allFolders = vscode.workspace.workspaceFolders ?? [];
+    if (allFolders.some(f => f.uri.toString() === targetUri.toString())) {
+      log.appendLine("[handleUri] current window already matches target — no-op");
+      return;
+    }
+
+    // forceNewWindow: false → VS Code scans all open windows for a matching
+    // workspace URI and focuses that window.  If no match exists, it opens the
+    // folder in the current window (acceptable when switching from the browser).
+    log.appendLine(`[handleUri] openFolder with forceNewWindow=false`);
+    vscode.commands.executeCommand("vscode.openFolder", targetUri, {
+      forceNewWindow: false,
+    }).then(
+      () => log.appendLine("[handleUri] openFolder executed"),
+      (err) => {
+        log.appendLine(`[handleUri] openFolder error: ${err}`);
+        vscode.window.showErrorMessage(`Dashboard Helper: failed to open folder — ${err}`);
+      }
+    );
+    return;
   } else if (folder) {
     log.appendLine(`[handleUri] opening local folder: ${folder}`);
     targetUri = vscode.Uri.file(folder);
@@ -94,10 +197,7 @@ function handleUri(uri: vscode.Uri): void {
     return;
   }
 
-  // Use forceNewWindow: false so VS Code first looks for an already-open window with this
-  // exact workspace URI and focuses it. Only if no such window exists does it open the folder
-  // in the current window. This is the correct behaviour for a session switcher.
-  log.appendLine(`[handleUri] calling vscode.openFolder with forceNewWindow=false`);
+  log.appendLine(`[handleUri] openFolder with forceNewWindow=false`);
   vscode.commands.executeCommand("vscode.openFolder", targetUri, {
     forceNewWindow: false,
   }).then(
