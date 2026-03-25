@@ -1,10 +1,10 @@
 /**
- * Dashboard Helper — VS Code Extension
+ * Session Reporter — VS Code Extension
  *
  * Two responsibilities dispatched by extensionKind:
  *
  * 1. URI Handler  [extensionKind = UI]  — runs on the LOCAL client (Windows)
- *    Handles  vscode://devdashboard.dashboard-helper/open?remote=ALIAS&folder=/path
+ *    Handles  vscode://remote.session-reporter/open?remote=ALIAS&folder=/path
  *    and opens the workspace in a NEW window (forceNewWindow: true).
  *
  * 2. Workspace Reporter  [extensionKind = Workspace]  — runs on the REMOTE host (Linux)
@@ -27,7 +27,7 @@ let globalStoragePath: string;
 // ---------------------------------------------------------------------------
 
 export function activate(context: vscode.ExtensionContext): void {
-  log = vscode.window.createOutputChannel("Dashboard Helper");
+  log = vscode.window.createOutputChannel("Session Reporter");
   context.subscriptions.push(log);
 
   // Store for workspaceStorage scanning (UI side)
@@ -42,7 +42,7 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
       vscode.window.registerUriHandler({ handleUri })
     );
-    log.appendLine("[activate] URI handler registered → vscode://devdashboard.dashboard-helper/open");
+    log.appendLine("[activate] URI handler registered → vscode://remote.session-reporter/open");
   } else {
     // ── Workspace reporter — remote host only ────────────────────────────────
     startReporter(context);
@@ -52,7 +52,7 @@ export function activate(context: vscode.ExtensionContext): void {
 export function deactivate(): void {}
 
 // ---------------------------------------------------------------------------
-// URI handler — vscode://devdashboard.dashboard-helper/open?remote=ALIAS&folder=PATH
+// URI handler — vscode://remote.session-reporter/open?remote=ALIAS&folder=PATH
 // ---------------------------------------------------------------------------
 
 /**
@@ -77,7 +77,7 @@ function authorityMatchesRemote(authority: string, remote: string): boolean {
 
 function findStoredAuthority(remote: string, remotePath: string): string | null {
   try {
-    // globalStoragePath = .../Code/User/globalStorage/devdashboard.dashboard-helper
+    // globalStoragePath = .../Code/User/globalStorage/remote.session-reporter
     // target            = .../Code/User/workspaceStorage/
     const userDir = path.dirname(path.dirname(globalStoragePath));
     const wsStoragePath = path.join(userDir, "workspaceStorage");
@@ -153,7 +153,7 @@ function findStoredAuthority(remote: string, remotePath: string): string | null 
  */
 function isWindowCurrentlyOpen(targetUri: vscode.Uri): boolean {
   try {
-    // globalStoragePath = .../Code/User/globalStorage/devdashboard.dashboard-helper
+    // globalStoragePath = .../Code/User/globalStorage/remote.session-reporter
     // codeDir           = .../Code/
     const userDir = path.dirname(path.dirname(globalStoragePath));
     const codeDir = path.dirname(userDir);
@@ -192,7 +192,7 @@ function handleUri(uri: vscode.Uri): void {
   log.appendLine(`[handleUri] received: ${uri.toString()}`);
 
   if (uri.path !== "/open") {
-    const msg = `Dashboard Helper: unknown path "${uri.path}"`;
+    const msg = `Session Reporter: unknown path "${uri.path}"`;
     log.appendLine(`[handleUri] error: ${msg}`);
     vscode.window.showErrorMessage(msg);
     return;
@@ -205,7 +205,7 @@ function handleUri(uri: vscode.Uri): void {
   log.appendLine(`[handleUri] remote=${remote} folder=${folder}`);
 
   if (!folder && !remote) {
-    const msg = "Dashboard Helper: at least one of 'folder' or 'remote' is required";
+    const msg = "Session Reporter: at least one of 'folder' or 'remote' is required";
     log.appendLine(`[handleUri] error: ${msg}`);
     vscode.window.showErrorMessage(msg);
     return;
@@ -251,7 +251,7 @@ function handleUri(uri: vscode.Uri): void {
       () => log.appendLine("[handleUri] openFolder executed"),
       (err) => {
         log.appendLine(`[handleUri] openFolder error: ${err}`);
-        vscode.window.showErrorMessage(`Dashboard Helper: failed to open folder — ${err}`);
+        vscode.window.showErrorMessage(`Session Reporter: failed to open folder — ${err}`);
       }
     );
     return;
@@ -259,7 +259,7 @@ function handleUri(uri: vscode.Uri): void {
     log.appendLine(`[handleUri] opening local folder: ${folder}`);
     targetUri = vscode.Uri.file(folder);
   } else {
-    vscode.window.showErrorMessage("dashboard-helper: missing folder parameter");
+    vscode.window.showErrorMessage("session-reporter: missing folder parameter");
     return;
   }
 
@@ -269,7 +269,7 @@ function handleUri(uri: vscode.Uri): void {
     () => log.appendLine("[handleUri] openFolder command executed"),
     (err) => {
       log.appendLine(`[handleUri] openFolder error: ${err}`);
-      vscode.window.showErrorMessage(`Dashboard Helper: failed to open folder — ${err}`);
+      vscode.window.showErrorMessage(`Session Reporter: failed to open folder — ${err}`);
     }
   );
 }
@@ -285,7 +285,7 @@ function startReporter(context: vscode.ExtensionContext): void {
     return;
   }
 
-  const config = vscode.workspace.getConfiguration("dashboardHelper");
+  const config = vscode.workspace.getConfiguration("sessionReporter");
   const backendUrl = config.get<string>("backendUrl", "").trim();
   const token = config.get<string>("agentToken", "").trim();
 
@@ -338,7 +338,7 @@ function syncSession(
   folder: vscode.WorkspaceFolder,
   isActive: boolean
 ): void {
-  const config = vscode.workspace.getConfiguration("dashboardHelper");
+  const config = vscode.workspace.getConfiguration("sessionReporter");
 
   const repo = folder.uri.scheme === "file"
     ? folder.uri.fsPath
@@ -358,7 +358,7 @@ function syncSession(
 
   // Generate the canonical URL — remote must match the SSH authority exactly
   const vscodeUrl =
-    `vscode://devdashboard.dashboard-helper/open` +
+    `vscode://remote.session-reporter/open` +
     `?remote=${encodeURIComponent(remote)}` +
     `&folder=${encodeURIComponent(repo)}`;
 

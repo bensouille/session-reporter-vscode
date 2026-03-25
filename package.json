@@ -1,9 +1,9 @@
 {
-  "name": "dashboard-helper",
-  "displayName": "Dashboard Helper",
-  "description": "Open remote SSH folders in a new VS Code window and sync active workspaces to your self-hosted developer dashboard.",
-  "version": "1.0.0",
-  "publisher": "devdashboard",
+  "name": "session-reporter",
+  "displayName": "Session Reporter",
+  "description": "Open remote SSH folders in a new VS Code window and automatically sync your active VS Code sessions to any backend dashboard.",
+  "version": "0.2.0",
+  "publisher": "remote",
   "engines": {
     "vscode": "^1.74.0"
   },
@@ -25,29 +25,29 @@
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
-      "title": "Dashboard Helper",
+      "title": "Session Reporter",
       "properties": {
-        "dashboardHelper.backendUrl": {
+        "sessionReporter.backendUrl": {
           "type": "string",
           "default": "",
-          "markdownDescription": "URL of your self-hosted dashboard backend, e.g. `https://dashboard.example.com`"
+          "markdownDescription": "URL of your dashboard backend, e.g. `https://dashboard.example.com`"
         },
-        "dashboardHelper.agentToken": {
+        "sessionReporter.agentToken": {
           "type": "string",
           "default": "",
           "markdownDescription": "Secret token matching the `AGENT_TOKEN` environment variable on the backend"
         },
-        "dashboardHelper.hostAlias": {
+        "sessionReporter.hostAlias": {
           "type": "string",
           "default": "",
           "markdownDescription": "Identifier for this host (e.g. SSH config alias). Defaults to the system hostname."
         },
-        "dashboardHelper.sshUser": {
+        "sessionReporter.sshUser": {
           "type": "string",
           "default": "",
           "markdownDescription": "SSH user used to connect to this host (e.g. `root`). Used to generate the correct `user@host` VS Code workspace URI so Copilot Chat history is preserved."
         },
-        "dashboardHelper.reportInterval": {
+        "sessionReporter.reportInterval": {
           "type": "number",
           "default": 60,
           "minimum": 10,
