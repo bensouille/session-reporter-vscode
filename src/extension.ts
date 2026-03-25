@@ -89,9 +89,9 @@ function handleUri(uri: vscode.Uri): void {
     return;
   }
 
-  log.appendLine(`[handleUri] calling vscode.openFolder with forceNewWindow=true`);
+  log.appendLine(`[handleUri] calling vscode.openFolder with forceNewWindow=false`);
   vscode.commands.executeCommand("vscode.openFolder", targetUri, {
-    forceNewWindow: true,
+    forceNewWindow: false,
   }).then(
     () => log.appendLine("[handleUri] openFolder command executed"),
     (err) => {
