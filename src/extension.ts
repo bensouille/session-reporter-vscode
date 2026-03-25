@@ -76,9 +76,9 @@ function handleUri(uri: vscode.Uri): void {
 
   if (remote) {
     const remotePath = folder || "/";
-    // VS Code normalises SSH remote authorities to lowercase internally — the workspace
-    // storage hash is computed from the lowercased URI, so we must match that exactly.
-    const raw = `vscode-remote://ssh-remote+${remote.toLowerCase()}${remotePath}`;
+    // The SSH remote authority must match VS Code's workspace storage hash exactly
+    // (case-sensitive). Use the remote parameter as-is — do NOT call toLowerCase().
+    const raw = `vscode-remote://ssh-remote+${remote}${remotePath}`;
     log.appendLine(`[handleUri] opening remote URI: ${raw}`);
     targetUri = vscode.Uri.parse(raw);
   } else if (folder) {
