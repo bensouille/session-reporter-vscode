@@ -151,6 +151,22 @@ function findStoredAuthority(remote: string, remotePath: string): string | null 
  * Returns true  → window is open  → use forceNewWindow: false (focus it)
  * Returns false → window not open → use forceNewWindow: true  (new window, no popup)
  */
+function countOpenWindows(): number {
+  try {
+    const userDir = path.dirname(path.dirname(globalStoragePath));
+    const codeDir = path.dirname(userDir);
+    const storagePath = path.join(codeDir, "storage.json");
+    if (!fs.existsSync(storagePath)) { return 0; }
+    const storage = JSON.parse(fs.readFileSync(storagePath, "utf-8"));
+    const ws: Record<string, unknown> = storage.windowsState ?? {};
+    const opened = Array.isArray(ws.openedWindows) ? ws.openedWindows.length : 0;
+    const hasLast = ws.lastActiveWindow ? 1 : 0;
+    return opened + hasLast;
+  } catch {
+    return 0;
+  }
+}
+
 function isWindowCurrentlyOpen(targetUri: vscode.Uri): boolean {
   try {
     // globalStoragePath = .../Code/User/globalStorage/remote.session-reporter
@@ -239,14 +255,14 @@ function handleUri(uri: vscode.Uri): void {
       return;
     }
 
-    // Decide forceNewWindow based on whether a matching window is currently open:
-    //   - window open  → forceNewWindow: false → VS Code focuses the existing window
-    //   - window closed → forceNewWindow: true  → opens in new window (avoids the
-    //                     "save workspace configuration?" popup that appears when
-    //                     forceNewWindow:false tries to replace the current window)
+    // Decide forceNewWindow:
+    //   - target window open      → forceNewWindow: false → focuses it
+    //   - target not open, only 1 VS Code window exists (dashboard was auto-restored
+    //     as a side-effect of launching via URI) → forceNewWindow: false → replaces it
+    //   - target not open, multiple windows open → forceNewWindow: true → new window
     const windowIsOpen = isWindowCurrentlyOpen(targetUri);
-    const forceNewWindow = !windowIsOpen;
-    log.appendLine(`[handleUri] windowIsOpen=${windowIsOpen} → forceNewWindow=${forceNewWindow}`);
+    const forceNewWindow = !windowIsOpen && countOpenWindows() !== 1;
+    log.appendLine(`[handleUri] windowIsOpen=${windowIsOpen} openWindows=${countOpenWindows()} → forceNewWindow=${forceNewWindow}`);
     vscode.commands.executeCommand("vscode.openFolder", targetUri, { forceNewWindow }).then(
       () => log.appendLine("[handleUri] openFolder executed"),
       (err) => {
@@ -263,8 +279,9 @@ function handleUri(uri: vscode.Uri): void {
     return;
   }
 
-  log.appendLine(`[handleUri] forceNewWindow=${!isWindowCurrentlyOpen(targetUri)}`);
-  const forceNewWindow = !isWindowCurrentlyOpen(targetUri);
+  const windowIsOpen2 = isWindowCurrentlyOpen(targetUri);
+  const forceNewWindow = !windowIsOpen2 && countOpenWindows() !== 1;
+  log.appendLine(`[handleUri] windowIsOpen=${windowIsOpen2} openWindows=${countOpenWindows()} → forceNewWindow=${forceNewWindow}`);
   vscode.commands.executeCommand("vscode.openFolder", targetUri, { forceNewWindow }).then(
     () => log.appendLine("[handleUri] openFolder command executed"),
     (err) => {
