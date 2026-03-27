@@ -1,8 +1,8 @@
 {
   "name": "session-reporter",
   "displayName": "Session Reporter",
-  "description": "Open remote SSH folders in a new VS Code window and automatically sync your active VS Code sessions to any backend dashboard.",
-  "version": "0.3.0",
+  "description": "Open remote SSH folders in a new VS Code window via vscode:// URI links from the dashboard.",
+  "version": "0.4.0",
   "publisher": "remote",
   "icon": "icon.png",
   "engines": {
@@ -22,7 +22,7 @@
     "onUri",
     "onStartupFinished"
   ],
-  "extensionKind": ["ui", "workspace"],
+  "extensionKind": ["ui"],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -33,34 +33,7 @@
     ],
     "configuration": {
       "title": "Session Reporter",
-      "properties": {
-        "sessionReporter.backendUrl": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "URL of your dashboard backend, e.g. `https://dashboard.example.com`"
-        },
-        "sessionReporter.agentToken": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Secret token matching the `AGENT_TOKEN` environment variable on the backend"
-        },
-        "sessionReporter.hostAlias": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Identifier for this host (e.g. SSH config alias). Defaults to the system hostname."
-        },
-        "sessionReporter.sshUser": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "SSH user used to connect to this host (e.g. `root`). Used to generate the correct `user@host` VS Code workspace URI so Copilot Chat history is preserved."
-        },
-        "sessionReporter.reportInterval": {
-          "type": "number",
-          "default": 60,
-          "minimum": 10,
-          "markdownDescription": "How often (in seconds) to send a workspace heartbeat to the backend (default: 60)"
-        }
-      }
+      "properties": {}
     }
   },
   "scripts": {

@@ -1,15 +1,12 @@
 /**
  * Session Reporter — VS Code Extension
  *
- * Two responsibilities dispatched by extensionKind:
+ * URI Handler  [extensionKind = UI]  — runs on the LOCAL client (Windows)
+ * Handles  vscode://remote.session-reporter/open?remote=ALIAS&folder=/path
+ * and opens the workspace in a NEW window (forceNewWindow: true).
  *
- * 1. URI Handler  [extensionKind = UI]  — runs on the LOCAL client (Windows)
- *    Handles  vscode://remote.session-reporter/open?remote=ALIAS&folder=/path
- *    and opens the workspace in a NEW window (forceNewWindow: true).
- *
- * 2. Workspace Reporter  [extensionKind = Workspace]  — runs on the REMOTE host (Linux)
- *    Detects open workspaceFolders and POSTs them to the backend so the
- *    dashboard stays in sync.  Uses POST /api/v1/hosts/session-sync.
+ * Sessions are managed manually in the dashboard — this extension does NOT
+ * report workspaces to the backend.
  */
 
 import * as vscode from "vscode";
@@ -37,23 +34,20 @@ export function activate(context: vscode.ExtensionContext): void {
   const kindLabel = kind === vscode.ExtensionKind.UI ? "UI (local)" : "Workspace (remote)";
   log.appendLine(`[activate] running as ${kindLabel}`);
 
-  if (kind === vscode.ExtensionKind.UI) {
-    // ── URI handler — local client only ─────────────────────────────────────
-    context.subscriptions.push(
-      vscode.window.registerUriHandler({ handleUri })
-    );
-    log.appendLine("[activate] URI handler registered → vscode://remote.session-reporter/open");
+  // ── URI handler ────────────────────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.window.registerUriHandler({ handleUri })
+  );
+  log.appendLine("[activate] URI handler registered → vscode://remote.session-reporter/open");
 
-    // ── Auto-updater ─────────────────────────────────────────────────────────
+  // ── Auto-updater (UI only) ─────────────────────────────────────────────────
+  if (kind === vscode.ExtensionKind.UI) {
     checkForUpdates(context);
     context.subscriptions.push(
       vscode.commands.registerCommand("sessionReporter.checkForUpdates", () => {
         _checkForUpdates(context);
       })
     );
-  } else {
-    // ── Workspace reporter — remote host only ────────────────────────────────
-    startReporter(context);
   }
 }
 
@@ -233,110 +227,6 @@ function handleUri(uri: vscode.Uri): void {
 }
 
 // ---------------------------------------------------------------------------
-// Workspace reporter — runs on the REMOTE host (extensionKind = Workspace)
-// ---------------------------------------------------------------------------
-
-function startReporter(context: vscode.ExtensionContext): void {
-  const folders = vscode.workspace.workspaceFolders;
-  if (!folders?.length) {
-    log.appendLine("[reporter] no workspace folders open — skipping");
-    return;
-  }
-
-  const config = vscode.workspace.getConfiguration("sessionReporter");
-  const backendUrl = config.get<string>("backendUrl", "").trim();
-  const token = config.get<string>("agentToken", "").trim();
-
-  if (!backendUrl || !token) {
-    log.appendLine("[reporter] backendUrl or agentToken not configured — skipping");
-    return;
-  }
-
-  const intervalSec = Math.max(10, config.get<number>("reportInterval", 60));
-  log.appendLine(`[reporter] starting — backend=${backendUrl} interval=${intervalSec}s`);
-
-  // Report all current folders as active immediately
-  for (const f of folders) {
-    syncSession(backendUrl, token, f, true);
-  }
-
-  // Track folder changes within the same window
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeWorkspaceFolders((e) => {
-      for (const f of e.added) syncSession(backendUrl, token, f, true);
-      for (const f of e.removed) syncSession(backendUrl, token, f, false);
-    })
-  );
-
-  // Periodic heartbeat
-  const timer = setInterval(() => {
-    for (const f of vscode.workspace.workspaceFolders ?? []) {
-      syncSession(backendUrl, token, f, true);
-    }
-  }, intervalSec * 1000);
-  context.subscriptions.push({ dispose: () => clearInterval(timer) });
-
-  // Mark inactive on shutdown
-  context.subscriptions.push({
-    dispose() {
-      for (const f of vscode.workspace.workspaceFolders ?? []) {
-        syncSession(backendUrl, token, f, false);
-      }
-    },
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Workspace reporter helpers
-// ---------------------------------------------------------------------------
-
-function syncSession(
-  backendUrl: string,
-  token: string,
-  folder: vscode.WorkspaceFolder,
-  isActive: boolean
-): void {
-  const config = vscode.workspace.getConfiguration("sessionReporter");
-
-  const repo = folder.uri.scheme === "file"
-    ? folder.uri.fsPath
-    : folder.uri.path;
-
-  // hostname for the checkin payload (bare machine name, no user)
-  const hostname = config.get<string>("hostAlias", "").trim() || os.hostname();
-
-  // Build the remote authority for the vscode:// URL.
-  // When running as Workspace (on the remote host), folder.uri.scheme is "file"
-  // and we only know the bare hostname.  The sshUser setting lets the admin specify
-  // the SSH user so the generated URL matches VS Code's workspace storage hash.
-  // Priority: explicit sshUser setting > bare hostname (backend will not overwrite
-  // an existing URL that already contains user@host).
-  const sshUser = config.get<string>("sshUser", "").trim();
-  const remote = sshUser ? `${sshUser}@${hostname}` : hostname;
-
-  // Generate the canonical URL — remote must match the SSH authority exactly
-  const vscodeUrl =
-    `vscode://remote.session-reporter/open` +
-    `?remote=${encodeURIComponent(remote)}` +
-    `&folder=${encodeURIComponent(repo)}`;
-
-  log.appendLine(`[syncSession] remote=${remote} repo=${repo} active=${isActive}`);
-
-  const payload = JSON.stringify({
-    hostname,
-    repo,
-    vscode_url: vscodeUrl,
-    is_active: isActive,
-  });
-
-  postJson(
-    `${backendUrl.replace(/\/$/, "")}/api/v1/hosts/session-sync`,
-    token,
-    payload
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Auto-updater — UI side only
 // ---------------------------------------------------------------------------
 
@@ -460,32 +350,4 @@ function downloadAndInstall(downloadUrl: string, assetName: string, version: str
   doRequest(downloadUrl);
 }
 
-function postJson(endpoint: string, token: string, payload: string): void {
-  try {
-    const parsed = new URL(endpoint);
-    const isHttps = parsed.protocol === "https:";
-    const port = parsed.port
-      ? parseInt(parsed.port, 10)
-      : isHttps ? 443 : 80;
 
-    const options: http.RequestOptions = {
-      hostname: parsed.hostname,
-      port,
-      path: parsed.pathname,
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Agent-Token": token,
-        "Content-Length": Buffer.byteLength(payload),
-      },
-    };
-
-    const transport = isHttps ? https : http;
-    const req = transport.request(options);
-    req.on("error", () => {}); // silent — must not disrupt IDE workflow
-    req.write(payload);
-    req.end();
-  } catch {
-    // silent
-  }
-}
