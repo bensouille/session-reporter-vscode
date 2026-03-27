@@ -2,7 +2,7 @@
   "name": "session-reporter",
   "displayName": "Session Reporter",
   "description": "Open remote SSH folders in a new VS Code window and automatically sync your active VS Code sessions to any backend dashboard.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "remote",
   "icon": "icon.png",
   "engines": {
@@ -25,6 +25,12 @@
   "extensionKind": ["ui", "workspace"],
   "main": "./out/extension.js",
   "contributes": {
+    "commands": [
+      {
+        "command": "sessionReporter.checkForUpdates",
+        "title": "Session Reporter: Vérifier les mises à jour"
+      }
+    ],
     "configuration": {
       "title": "Session Reporter",
       "properties": {

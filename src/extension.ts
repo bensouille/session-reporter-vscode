@@ -43,6 +43,14 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.window.registerUriHandler({ handleUri })
     );
     log.appendLine("[activate] URI handler registered → vscode://remote.session-reporter/open");
+
+    // ── Auto-updater ─────────────────────────────────────────────────────────
+    checkForUpdates(context);
+    context.subscriptions.push(
+      vscode.commands.registerCommand("sessionReporter.checkForUpdates", () => {
+        _checkForUpdates(context);
+      })
+    );
   } else {
     // ── Workspace reporter — remote host only ────────────────────────────────
     startReporter(context);
@@ -393,6 +401,130 @@ function syncSession(
     token,
     payload
   );
+}
+
+// ---------------------------------------------------------------------------
+// Auto-updater — UI side only
+// ---------------------------------------------------------------------------
+
+const GITHUB_REPO = "bensouille/session-reporter-vscode";
+
+function compareSemver(a: string, b: string): number {
+  const parse = (v: string) => v.replace(/^v/, "").split(".").map(Number);
+  const [aMaj, aMin, aPat] = parse(a);
+  const [bMaj, bMin, bPat] = parse(b);
+  if (aMaj !== bMaj) { return aMaj - bMaj; }
+  if (aMin !== bMin) { return aMin - bMin; }
+  return aPat - bPat;
+}
+
+function checkForUpdates(context: vscode.ExtensionContext): void {
+  // Delay 8 s to avoid blocking activation
+  setTimeout(() => _checkForUpdates(context), 8000);
+}
+
+function _checkForUpdates(context: vscode.ExtensionContext): void {
+  log.appendLine("[updater] checking for updates…");
+
+  const options: https.RequestOptions = {
+    hostname: "api.github.com",
+    path: `/repos/${GITHUB_REPO}/releases/latest`,
+    method: "GET",
+    headers: {
+      "User-Agent": "session-reporter-vscode",
+      "Accept": "application/vnd.github+json",
+    },
+  };
+
+  const req = https.get(options, (res) => {
+    let body = "";
+    res.on("data", (chunk: string) => { body += chunk; });
+    res.on("end", () => {
+      try {
+        const release = JSON.parse(body);
+        const latestTag: string = release.tag_name ?? "";
+        const currentVersion: string = context.extension.packageJSON.version;
+
+        log.appendLine(`[updater] current=${currentVersion} latest=${latestTag}`);
+
+        if (!latestTag || compareSemver(latestTag, currentVersion) <= 0) {
+          log.appendLine("[updater] already up to date");
+          return;
+        }
+
+        const assets: Array<{ name: string; browser_download_url: string }> = release.assets ?? [];
+        const vsixAsset = assets.find(a => a.name.endsWith(".vsix"));
+        if (!vsixAsset) {
+          log.appendLine("[updater] no .vsix asset found in release");
+          return;
+        }
+
+        log.appendLine(`[updater] update available: ${latestTag}`);
+        vscode.window.showInformationMessage(
+          `Session Reporter ${latestTag} est disponible (actuel : ${currentVersion})`,
+          "Mettre à jour",
+          "Notes de version"
+        ).then(choice => {
+          if (choice === "Mettre à jour") {
+            downloadAndInstall(vsixAsset.browser_download_url, vsixAsset.name, latestTag);
+          } else if (choice === "Notes de version") {
+            vscode.env.openExternal(vscode.Uri.parse(release.html_url as string));
+          }
+        });
+      } catch (e) {
+        log.appendLine(`[updater] failed to parse release response: ${e}`);
+      }
+    });
+  });
+
+  req.on("error", (e: Error) => log.appendLine(`[updater] request error: ${e.message}`));
+}
+
+function downloadAndInstall(downloadUrl: string, assetName: string, version: string): void {
+  const tmpPath = path.join(os.tmpdir(), assetName);
+  log.appendLine(`[updater] downloading → ${tmpPath}`);
+
+  const file = fs.createWriteStream(tmpPath);
+
+  const doRequest = (url: string): void => {
+    const transport = url.startsWith("https") ? https : http;
+    transport.get(url, { headers: { "User-Agent": "session-reporter-vscode" } }, (res) => {
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        doRequest(res.headers.location);
+        return;
+      }
+      res.pipe(file);
+      file.on("finish", () => {
+        file.close();
+        log.appendLine("[updater] download complete — installing…");
+        vscode.commands.executeCommand(
+          "workbench.extensions.installExtension",
+          vscode.Uri.file(tmpPath)
+        ).then(
+          () => {
+            log.appendLine(`[updater] installed ${version}`);
+            vscode.window.showInformationMessage(
+              `Session Reporter ${version} installé. Rechargez VSCode pour l'activer.`,
+              "Recharger"
+            ).then(choice => {
+              if (choice === "Recharger") {
+                vscode.commands.executeCommand("workbench.action.reloadWindow");
+              }
+            });
+          },
+          (err: unknown) => {
+            log.appendLine(`[updater] install failed: ${err}`);
+            vscode.window.showErrorMessage(`Session Reporter: échec de la mise à jour — ${err}`);
+          }
+        );
+      });
+    }).on("error", (e: Error) => {
+      log.appendLine(`[updater] download error: ${e.message}`);
+      vscode.window.showErrorMessage(`Session Reporter: échec du téléchargement — ${e.message}`);
+    });
+  };
+
+  doRequest(downloadUrl);
 }
 
 function postJson(endpoint: string, token: string, payload: string): void {
