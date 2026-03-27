@@ -262,20 +262,22 @@ function handleUri(uri: vscode.Uri): void {
     const windowIsOpen = isWindowCurrentlyOpen(targetUri);
     const isColdLaunch = !firstUriHandled && (Date.now() - activationTime) < 5000;
     firstUriHandled = true;
-    const forceNewWindow = !windowIsOpen;  // focus if open, new window otherwise
+    const forceNewWindow = !windowIsOpen;
     log.appendLine(`[handleUri] windowIsOpen=${windowIsOpen} isColdLaunch=${isColdLaunch} → forceNewWindow=${forceNewWindow}`);
+
+    if (isColdLaunch && forceNewWindow) {
+      // Cold launch: VS Code auto-restored the previous window before processing this URI.
+      // Open the target in a new window, then IMMEDIATELY close the restored window in
+      // the SAME execution context (no setTimeout) so closeWindow targets THIS window,
+      // not the newly opened one which would take focus after a delay.
+      log.appendLine("[handleUri] cold launch — open target then close restored window");
+      vscode.commands.executeCommand("vscode.openFolder", targetUri, { forceNewWindow: true });
+      vscode.commands.executeCommand("workbench.action.closeWindow");
+      return;
+    }
+
     vscode.commands.executeCommand("vscode.openFolder", targetUri, { forceNewWindow }).then(
-      () => {
-        log.appendLine("[handleUri] openFolder executed");
-        if (isColdLaunch && forceNewWindow) {
-          // Close the auto-restored window that VS Code brought up as a startup side-effect.
-          // Delay gives VS Code time to focus the new window first.
-          setTimeout(() => {
-            log.appendLine("[handleUri] closing auto-restored cold-launch window");
-            vscode.commands.executeCommand("workbench.action.closeWindow");
-          }, 1500);
-        }
-      },
+      () => log.appendLine("[handleUri] openFolder executed"),
       (err) => {
         log.appendLine(`[handleUri] openFolder error: ${err}`);
         vscode.window.showErrorMessage(`Session Reporter: failed to open folder — ${err}`);
@@ -295,16 +297,15 @@ function handleUri(uri: vscode.Uri): void {
   firstUriHandled = true;
   const forceNewWindow = !windowIsOpen2;
   log.appendLine(`[handleUri] windowIsOpen=${windowIsOpen2} isColdLaunch=${isColdLaunch2} → forceNewWindow=${forceNewWindow}`);
+
+  if (isColdLaunch2 && forceNewWindow) {
+    vscode.commands.executeCommand("vscode.openFolder", targetUri, { forceNewWindow: true });
+    vscode.commands.executeCommand("workbench.action.closeWindow");
+    return;
+  }
+
   vscode.commands.executeCommand("vscode.openFolder", targetUri, { forceNewWindow }).then(
-    () => {
-      log.appendLine("[handleUri] openFolder command executed");
-      if (isColdLaunch2 && forceNewWindow) {
-        setTimeout(() => {
-          log.appendLine("[handleUri] closing auto-restored cold-launch window");
-          vscode.commands.executeCommand("workbench.action.closeWindow");
-        }, 1500);
-      }
-    },
+    () => log.appendLine("[handleUri] openFolder command executed"),
     (err) => {
       log.appendLine(`[handleUri] openFolder error: ${err}`);
       vscode.window.showErrorMessage(`Session Reporter: failed to open folder — ${err}`);
