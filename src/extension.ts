@@ -252,14 +252,21 @@ function handleUri(uri: vscode.Uri): void {
     }
 
     // Decide forceNewWindow:
-    //   - target window open                   → forceNewWindow: false → focuses it
-    //   - first URI after cold launch (<5s)     → forceNewWindow: false → replaces auto-restored window
-    //   - any subsequent URI (session 2, 3...)  → forceNewWindow: true  → independent new window
+    //   - target window already open               → focus it (forceNewWindow: false)
+    //   - first URI, <5s after activation, current window is LOCAL (file://) → cold-launch:
+    //     replace the auto-restored local window (forceNewWindow: false)
+    //   - first URI but current window is REMOTE (SSH auth pending) or >5s → new window
+    //     so we never queue behind an authenticating SSH connection
     const windowIsOpen = isWindowCurrentlyOpen(targetUri);
-    const isColdLaunch = !firstUriHandled && (Date.now() - activationTime) < 5000;
+    const currentFolders = vscode.workspace.workspaceFolders ?? [];
+    const currentWindowIsLocal = currentFolders.length === 0 ||
+      currentFolders.every(f => f.uri.scheme === "file");
+    const isColdLaunch = !firstUriHandled &&
+      (Date.now() - activationTime) < 5000 &&
+      currentWindowIsLocal;
     firstUriHandled = true;
     const forceNewWindow = !windowIsOpen && !isColdLaunch;
-    log.appendLine(`[handleUri] windowIsOpen=${windowIsOpen} isColdLaunch=${isColdLaunch} → forceNewWindow=${forceNewWindow}`);
+    log.appendLine(`[handleUri] windowIsOpen=${windowIsOpen} currentWindowIsLocal=${currentWindowIsLocal} isColdLaunch=${isColdLaunch} → forceNewWindow=${forceNewWindow}`);
     vscode.commands.executeCommand("vscode.openFolder", targetUri, { forceNewWindow }).then(
       () => log.appendLine("[handleUri] openFolder executed"),
       (err) => {
@@ -277,10 +284,15 @@ function handleUri(uri: vscode.Uri): void {
   }
 
   const windowIsOpen2 = isWindowCurrentlyOpen(targetUri);
-  const isColdLaunch2 = !firstUriHandled && (Date.now() - activationTime) < 5000;
+  const currentFolders2 = vscode.workspace.workspaceFolders ?? [];
+  const currentWindowIsLocal2 = currentFolders2.length === 0 ||
+    currentFolders2.every(f => f.uri.scheme === "file");
+  const isColdLaunch2 = !firstUriHandled &&
+    (Date.now() - activationTime) < 5000 &&
+    currentWindowIsLocal2;
   firstUriHandled = true;
   const forceNewWindow = !windowIsOpen2 && !isColdLaunch2;
-  log.appendLine(`[handleUri] windowIsOpen=${windowIsOpen2} isColdLaunch=${isColdLaunch2} → forceNewWindow=${forceNewWindow}`);  vscode.commands.executeCommand("vscode.openFolder", targetUri, { forceNewWindow }).then(
+  log.appendLine(`[handleUri] windowIsOpen=${windowIsOpen2} currentWindowIsLocal=${currentWindowIsLocal2} isColdLaunch=${isColdLaunch2} → forceNewWindow=${forceNewWindow}`);  vscode.commands.executeCommand("vscode.openFolder", targetUri, { forceNewWindow }).then(
     () => log.appendLine("[handleUri] openFolder command executed"),
     (err) => {
       log.appendLine(`[handleUri] openFolder error: ${err}`);
