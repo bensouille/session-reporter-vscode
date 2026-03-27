@@ -22,6 +22,7 @@ import * as http from "http";
 let log: vscode.OutputChannel;
 let globalStoragePath: string;
 let activationTime = 0;
+let firstUriHandled = false;
 
 // ---------------------------------------------------------------------------
 // Activation
@@ -162,22 +163,6 @@ function findStoredAuthority(remote: string, remotePath: string): string | null 
  * Returns true  → window is open  → use forceNewWindow: false (focus it)
  * Returns false → window not open → use forceNewWindow: true  (new window, no popup)
  */
-function countOpenWindows(): number {
-  try {
-    const userDir = path.dirname(path.dirname(globalStoragePath));
-    const codeDir = path.dirname(userDir);
-    const storagePath = path.join(codeDir, "storage.json");
-    if (!fs.existsSync(storagePath)) { return 0; }
-    const storage = JSON.parse(fs.readFileSync(storagePath, "utf-8"));
-    const ws: Record<string, unknown> = storage.windowsState ?? {};
-    const opened = Array.isArray(ws.openedWindows) ? ws.openedWindows.length : 0;
-    const hasLast = ws.lastActiveWindow ? 1 : 0;
-    return opened + hasLast;
-  } catch {
-    return 0;
-  }
-}
-
 function isWindowCurrentlyOpen(targetUri: vscode.Uri): boolean {
   try {
     // globalStoragePath = .../Code/User/globalStorage/remote.session-reporter
@@ -267,12 +252,12 @@ function handleUri(uri: vscode.Uri): void {
     }
 
     // Decide forceNewWindow:
-    //   - target window open      → forceNewWindow: false → focuses it
-    //   - target not open, cold launch (URI fired within 5s of activation) and only
-    //     1 window (auto-restored dashboard) → forceNewWindow: false → replaces it
-    //   - otherwise               → forceNewWindow: true → new window
+    //   - target window open                   → forceNewWindow: false → focuses it
+    //   - first URI after cold launch (<5s)     → forceNewWindow: false → replaces auto-restored window
+    //   - any subsequent URI (session 2, 3...)  → forceNewWindow: true  → independent new window
     const windowIsOpen = isWindowCurrentlyOpen(targetUri);
-    const isColdLaunch = (Date.now() - activationTime) < 5000 && countOpenWindows() === 1;
+    const isColdLaunch = !firstUriHandled && (Date.now() - activationTime) < 5000;
+    firstUriHandled = true;
     const forceNewWindow = !windowIsOpen && !isColdLaunch;
     log.appendLine(`[handleUri] windowIsOpen=${windowIsOpen} isColdLaunch=${isColdLaunch} → forceNewWindow=${forceNewWindow}`);
     vscode.commands.executeCommand("vscode.openFolder", targetUri, { forceNewWindow }).then(
@@ -292,10 +277,10 @@ function handleUri(uri: vscode.Uri): void {
   }
 
   const windowIsOpen2 = isWindowCurrentlyOpen(targetUri);
-  const isColdLaunch2 = (Date.now() - activationTime) < 5000 && countOpenWindows() === 1;
+  const isColdLaunch2 = !firstUriHandled && (Date.now() - activationTime) < 5000;
+  firstUriHandled = true;
   const forceNewWindow = !windowIsOpen2 && !isColdLaunch2;
-  log.appendLine(`[handleUri] windowIsOpen=${windowIsOpen2} isColdLaunch=${isColdLaunch2} → forceNewWindow=${forceNewWindow}`);
-  vscode.commands.executeCommand("vscode.openFolder", targetUri, { forceNewWindow }).then(
+  log.appendLine(`[handleUri] windowIsOpen=${windowIsOpen2} isColdLaunch=${isColdLaunch2} → forceNewWindow=${forceNewWindow}`);  vscode.commands.executeCommand("vscode.openFolder", targetUri, { forceNewWindow }).then(
     () => log.appendLine("[handleUri] openFolder command executed"),
     (err) => {
       log.appendLine(`[handleUri] openFolder error: ${err}`);
