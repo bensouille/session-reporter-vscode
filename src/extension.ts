@@ -15,6 +15,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as https from "https";
 import * as http from "http";
+import * as cp from "child_process";
 
 let log: vscode.OutputChannel;
 let globalStoragePath: string;
@@ -259,56 +260,46 @@ function scanWorkspaceStorage(): WorkspaceEntry[] {
   const results: WorkspaceEntry[] = [];
   const seen = new Set<string>();
 
-  try {
-    const userDir = path.dirname(path.dirname(globalStoragePath));
-    const wsStoragePath = path.join(userDir, "workspaceStorage");
+  // On VS Code Remote SSH, workspace.json is NOT stored on the server side.
+  // Instead, we scan common directories for .git repos (project folders).
+  const home = os.homedir();
+  const searchDirs: string[] = [];
 
-    if (!fs.existsSync(wsStoragePath)) {
-      log.appendLine(`[workspaceScan] workspaceStorage not found at ${wsStoragePath}`);
-      return [];
-    }
-
-    const entries = fs.readdirSync(wsStoragePath);
-    for (const entry of entries) {
-      const wsJsonPath = path.join(wsStoragePath, entry, "workspace.json");
-      if (!fs.existsSync(wsJsonPath)) { continue; }
-
-      try {
-        const content = JSON.parse(fs.readFileSync(wsJsonPath, "utf-8"));
-        const folder = (content.folder as string || content.workspace as string || "").toString();
-        if (!folder) { continue; }
-
-        // Only handle SSH remote workspaces
-        if (!folder.startsWith("vscode-remote://ssh-remote+")) { continue; }
-
-        // Extract hostname and path: vscode-remote://ssh-remote+HOST/PATH
-        const rest = folder.substring("vscode-remote://ssh-remote+".length);
-        const slashIdx = rest.indexOf("/");
-        if (slashIdx === -1) { continue; }
-        const authority = rest.substring(0, slashIdx);
-        const wsPath = rest.substring(slashIdx);
-
-        // Try to decode hex-encoded JSON authority
-        let hostname = authority;
-        try {
-          const json = JSON.parse(Buffer.from(authority, "hex").toString("utf-8"));
-          if (json.hostName) { hostname = json.hostName; }
-        } catch { /* plain hostname */ }
-
-        const key = `${hostname}:${wsPath}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          results.push({ path: wsPath, hostname });
-        }
-      } catch {
-        // corrupt workspace.json — skip
-      }
-    }
-  } catch (e) {
-    log.appendLine(`[workspaceScan] error scanning: ${e}`);
+  // Common project locations
+  for (const dir of [
+    home,
+    path.join(home, "projects"),
+    path.join(home, "code"),
+    path.join(home, "dev"),
+    path.join(home, "workspace"),
+    path.join(home, "src"),
+    "/home",
+    "/srv",
+    "/var/www",
+  ]) {
+    if (fs.existsSync(dir)) { searchDirs.push(dir); }
   }
 
-  log.appendLine(`[workspaceScan] found ${results.length} remote workspaces`);
+  for (const base of searchDirs) {
+    try {
+      const entries = fs.readdirSync(base, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) { continue; }
+        if (entry.name.startsWith(".")) { continue; }  // skip dot-dirs
+        const gitDir = path.join(base, entry.name, ".git");
+        if (!fs.existsSync(gitDir)) { continue; }
+        const fullPath = path.join(base, entry.name);
+        if (!seen.has(fullPath)) {
+          seen.add(fullPath);
+          results.push({ path: fullPath, hostname: os.hostname() });
+        }
+      }
+    } catch {
+      // permission denied — skip
+    }
+  }
+
+  log.appendLine(`[workspaceScan] found ${results.length} git repos`);
   return results;
 }
 
