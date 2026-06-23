@@ -2,7 +2,7 @@
   "name": "session-reporter",
   "displayName": "Session Reporter",
   "description": "Open remote SSH folders in a new VS Code window via vscode:// URI links from the dashboard.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "remote",
   "icon": "icon.png",
   "engines": {
@@ -26,6 +26,10 @@
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
+      {
+        "command": "sessionReporter.configure",
+        "title": "Session Reporter: Configurer le dashboard"
+      },
       {
         "command": "sessionReporter.checkForUpdates",
         "title": "Session Reporter: Vérifier les mises à jour"

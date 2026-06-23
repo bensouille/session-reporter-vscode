@@ -64,6 +64,11 @@ export function activate(context: vscode.ExtensionContext): void {
       reportWorkspaces();
     })
   );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("sessionReporter.configure", () => {
+      configure(context);
+    })
+  );
 }
 
 export function deactivate(): void {}
@@ -306,6 +311,48 @@ function scanWorkspaceStorage(): WorkspaceEntry[] {
   log.appendLine(`[workspaceScan] found ${results.length} remote workspaces`);
   return results;
 }
+
+// ---------------------------------------------------------------------------
+// Configuration wizard
+// ---------------------------------------------------------------------------
+
+async function configure(context: vscode.ExtensionContext): Promise<void> {
+  const cfg = vscode.workspace.getConfiguration("sessionReporter");
+
+  const backendUrl = await vscode.window.showInputBox({
+    title: "Session Reporter (1/2) — Backend URL",
+    prompt: "URL du dashboard backend",
+    placeHolder: "https://dashboard.example.com",
+    value: cfg.get<string>("backendUrl") ?? "",
+    validateInput: (v) => {
+      if (!v) { return null; }
+      try { new URL(v); return null; } catch { return "URL invalide"; }
+    },
+  });
+  if (backendUrl === undefined) { return; }
+
+  const agentToken = await vscode.window.showInputBox({
+    title: "Session Reporter (2/2) — Agent Token",
+    prompt: "Secret token (AGENT_TOKEN du backend)",
+    placeHolder: "874558ee8c5b...",
+    password: true,
+    value: cfg.get<string>("agentToken") ?? "",
+  });
+  if (agentToken === undefined) { return; }
+
+  await cfg.update("backendUrl", backendUrl, vscode.ConfigurationTarget.Global);
+  await cfg.update("agentToken", agentToken, vscode.ConfigurationTarget.Global);
+
+  if (backendUrl && agentToken) {
+    vscode.window.showInformationMessage(
+      "Session Reporter: configuration sauvegardée. Lancez 'Signaler les workspaces au dashboard' pour envoyer les workspaces."
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Workspace scanner — report known remote workspaces to the dashboard
+// ---------------------------------------------------------------------------
 
 function reportWorkspaces(): void {
   const cfg = vscode.workspace.getConfiguration("sessionReporter");
