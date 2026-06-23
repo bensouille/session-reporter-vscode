@@ -40,9 +40,12 @@ export function activate(context: vscode.ExtensionContext): void {
   );
   log.appendLine("[activate] URI handler registered → vscode://remote.session-reporter/open");
 
-  // ── Auto-updater (UI only) ─────────────────────────────────────────────────
+  // ── Auto-updater (UI only, opt-in) ─────────────────────────────────────────
   if (kind === vscode.ExtensionKind.UI) {
-    checkForUpdates(context);
+    const cfg = vscode.workspace.getConfiguration("sessionReporter");
+    if (cfg.get<boolean>("autoUpdate", false)) {
+      checkForUpdates(context);
+    }
     context.subscriptions.push(
       vscode.commands.registerCommand("sessionReporter.checkForUpdates", () => {
         _checkForUpdates(context);
@@ -230,7 +233,10 @@ function handleUri(uri: vscode.Uri): void {
 // Auto-updater — UI side only
 // ---------------------------------------------------------------------------
 
-const GITHUB_REPO = "bensouille/session-reporter-vscode";
+function getGithubRepo(): string {
+  const cfg = vscode.workspace.getConfiguration("sessionReporter");
+  return cfg.get<string>("githubRepo") || "bensouille/session-reporter-vscode";
+}
 
 function compareSemver(a: string, b: string): number {
   const parse = (v: string) => v.replace(/^v/, "").split(".").map(Number);
@@ -259,10 +265,21 @@ function _checkForUpdates(context: vscode.ExtensionContext): void {
     },
   };
 
-  const req = https.get(options, (res) => {
-    let body = "";
-    res.on("data", (chunk: string) => { body += chunk; });
-    res.on("end", () => {
+    const repo = getGithubRepo();
+    options.path = `/repos/${repo}/releases/latest`;
+
+    const req = https.get(options, (res) => {
+      // GitHub API rate limit handling
+      if (res.statusCode === 403 && res.headers["x-ratelimit-remaining"] === "0") {
+        const resetTime = res.headers["x-ratelimit-reset"];
+        const resetDate = resetTime ? new Date(Number(resetTime) * 1000).toLocaleTimeString() : "inconnue";
+        log.appendLine(`[updater] GitHub API rate limit exceeded — retry after ${resetDate}`);
+        return;
+      }
+
+      let body = "";
+      res.on("data", (chunk: string) => { body += chunk; });
+      res.on("end", () => {
       try {
         const release = JSON.parse(body);
         const latestTag: string = release.tag_name ?? "";

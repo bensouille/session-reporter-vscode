@@ -33,7 +33,18 @@
     ],
     "configuration": {
       "title": "Session Reporter",
-      "properties": {}
+      "properties": {
+        "sessionReporter.autoUpdate": {
+          "type": "boolean",
+          "default": false,
+          "description": "Vérifier automatiquement les mises à jour de l'extension au démarrage"
+        },
+        "sessionReporter.githubRepo": {
+          "type": "string",
+          "default": "bensouille/session-reporter-vscode",
+          "description": "Dépôt GitHub contenant les releases VSIX (propriétaire/répertoire)"
+        }
+      }
     }
   },
   "scripts": {
