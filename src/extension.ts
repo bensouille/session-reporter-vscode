@@ -255,9 +255,11 @@ function checkForUpdates(context: vscode.ExtensionContext): void {
 function _checkForUpdates(context: vscode.ExtensionContext): void {
   log.appendLine("[updater] checking for updates…");
 
+  const repo = getGithubRepo();
+
   const options: https.RequestOptions = {
     hostname: "api.github.com",
-    path: `/repos/${GITHUB_REPO}/releases/latest`,
+    path: `/repos/${repo}/releases/latest`,
     method: "GET",
     headers: {
       "User-Agent": "session-reporter-vscode",
@@ -265,21 +267,18 @@ function _checkForUpdates(context: vscode.ExtensionContext): void {
     },
   };
 
-    const repo = getGithubRepo();
-    options.path = `/repos/${repo}/releases/latest`;
+  const req = https.get(options, (res) => {
+    // GitHub API rate limit handling
+    if (res.statusCode === 403 && res.headers["x-ratelimit-remaining"] === "0") {
+      const resetTime = res.headers["x-ratelimit-reset"];
+      const resetDate = resetTime ? new Date(Number(resetTime) * 1000).toLocaleTimeString() : "inconnue";
+      log.appendLine(`[updater] GitHub API rate limit exceeded — retry after ${resetDate}`);
+      return;
+    }
 
-    const req = https.get(options, (res) => {
-      // GitHub API rate limit handling
-      if (res.statusCode === 403 && res.headers["x-ratelimit-remaining"] === "0") {
-        const resetTime = res.headers["x-ratelimit-reset"];
-        const resetDate = resetTime ? new Date(Number(resetTime) * 1000).toLocaleTimeString() : "inconnue";
-        log.appendLine(`[updater] GitHub API rate limit exceeded — retry after ${resetDate}`);
-        return;
-      }
-
-      let body = "";
-      res.on("data", (chunk: string) => { body += chunk; });
-      res.on("end", () => {
+    let body = "";
+    res.on("data", (chunk: string) => { body += chunk; });
+    res.on("end", () => {
       try {
         const release = JSON.parse(body);
         const latestTag: string = release.tag_name ?? "";
