@@ -52,6 +52,18 @@ export function activate(context: vscode.ExtensionContext): void {
       })
     );
   }
+
+  // ── Workspace scanner (reports known workspaces to the dashboard) ──────────
+  const onWorkspace = kind === vscode.ExtensionKind.Workspace;
+  if (onWorkspace) {
+    // Report workspaces after a short delay (let VS Code finish loading)
+    setTimeout(() => reportWorkspaces(), 5000);
+  }
+  context.subscriptions.push(
+    vscode.commands.registerCommand("sessionReporter.reportWorkspaces", () => {
+      reportWorkspaces();
+    })
+  );
 }
 
 export function deactivate(): void {}
@@ -227,6 +239,143 @@ function handleUri(uri: vscode.Uri): void {
       vscode.window.showErrorMessage(`Session Reporter: failed to open folder — ${err}`);
     }
   );
+}
+
+// ---------------------------------------------------------------------------
+// Workspace scanner — report known remote workspaces to the dashboard
+// ---------------------------------------------------------------------------
+
+interface WorkspaceEntry {
+  path: string;
+  hostname: string;
+}
+
+function scanWorkspaceStorage(): WorkspaceEntry[] {
+  const results: WorkspaceEntry[] = [];
+  const seen = new Set<string>();
+
+  try {
+    const userDir = path.dirname(path.dirname(globalStoragePath));
+    const wsStoragePath = path.join(userDir, "workspaceStorage");
+
+    if (!fs.existsSync(wsStoragePath)) {
+      log.appendLine(`[workspaceScan] workspaceStorage not found at ${wsStoragePath}`);
+      return [];
+    }
+
+    const entries = fs.readdirSync(wsStoragePath);
+    for (const entry of entries) {
+      const wsJsonPath = path.join(wsStoragePath, entry, "workspace.json");
+      if (!fs.existsSync(wsJsonPath)) { continue; }
+
+      try {
+        const content = JSON.parse(fs.readFileSync(wsJsonPath, "utf-8"));
+        const folder = (content.folder as string || content.workspace as string || "").toString();
+        if (!folder) { continue; }
+
+        // Only handle SSH remote workspaces
+        if (!folder.startsWith("vscode-remote://ssh-remote+")) { continue; }
+
+        // Extract hostname and path: vscode-remote://ssh-remote+HOST/PATH
+        const rest = folder.substring("vscode-remote://ssh-remote+".length);
+        const slashIdx = rest.indexOf("/");
+        if (slashIdx === -1) { continue; }
+        const authority = rest.substring(0, slashIdx);
+        const wsPath = rest.substring(slashIdx);
+
+        // Try to decode hex-encoded JSON authority
+        let hostname = authority;
+        try {
+          const json = JSON.parse(Buffer.from(authority, "hex").toString("utf-8"));
+          if (json.hostName) { hostname = json.hostName; }
+        } catch { /* plain hostname */ }
+
+        const key = `${hostname}:${wsPath}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          results.push({ path: wsPath, hostname });
+        }
+      } catch {
+        // corrupt workspace.json — skip
+      }
+    }
+  } catch (e) {
+    log.appendLine(`[workspaceScan] error scanning: ${e}`);
+  }
+
+  log.appendLine(`[workspaceScan] found ${results.length} remote workspaces`);
+  return results;
+}
+
+function reportWorkspaces(): void {
+  const cfg = vscode.workspace.getConfiguration("sessionReporter");
+  const backendUrl = cfg.get<string>("backendUrl", "").replace(/\/+$/, "");
+  const agentToken = cfg.get<string>("agentToken", "");
+
+  if (!backendUrl || !agentToken) {
+    log.appendLine("[workspaceScan] backendUrl or agentToken not configured — skipping");
+    return;
+  }
+
+  const workspaces = scanWorkspaceStorage();
+  if (workspaces.length === 0) {
+    log.appendLine("[workspaceScan] no workspaces to report");
+    return;
+  }
+
+  log.appendLine(`[workspaceScan] reporting ${workspaces.length} workspaces to ${backendUrl}`);
+
+  let completed = 0;
+  let failed = 0;
+
+  for (const ws of workspaces) {
+    const body = JSON.stringify({
+      hostname: ws.hostname,
+      repo: ws.path,
+      vscode_url: `vscode://remote.session-reporter/open?remote=${encodeURIComponent(ws.hostname)}&folder=${encodeURIComponent(ws.path)}`,
+      is_active: false,
+    });
+
+    const url = new URL(backendUrl + "/api/v1/hosts/session-sync");
+    const options: https.RequestOptions = {
+      hostname: url.hostname,
+      port: url.port || (url.protocol === "https:" ? 443 : 80),
+      path: url.pathname + url.search,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(body),
+        "X-Agent-Token": agentToken,
+        "User-Agent": "session-reporter-vscode",
+      },
+    };
+
+    const transport = url.protocol === "https:" ? https : http;
+    const req = transport.request(options, (res) => {
+      let data = "";
+      res.on("data", (chunk: string) => { data += chunk; });
+      res.on("end", () => {
+        if (res.statusCode === 200 || res.statusCode === 201) {
+          completed++;
+        } else {
+          failed++;
+          log.appendLine(`[workspaceScan] ${ws.hostname}:${ws.path} → ${res.statusCode}`);
+        }
+        if (completed + failed === workspaces.length) {
+          log.appendLine(`[workspaceScan] done: ${completed} ok, ${failed} failed`);
+        }
+      });
+    });
+    req.on("error", (e: Error) => {
+      failed++;
+      log.appendLine(`[workspaceScan] ${ws.hostname}:${ws.path} error: ${e.message}`);
+      if (completed + failed === workspaces.length) {
+        log.appendLine(`[workspaceScan] done: ${completed} ok, ${failed} failed`);
+      }
+    });
+    req.write(body);
+    req.end();
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -22,13 +22,17 @@
     "onUri",
     "onStartupFinished"
   ],
-  "extensionKind": ["ui"],
+  "extensionKind": ["ui", "workspace"],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
         "command": "sessionReporter.checkForUpdates",
         "title": "Session Reporter: Vérifier les mises à jour"
+      },
+      {
+        "command": "sessionReporter.reportWorkspaces",
+        "title": "Session Reporter: Signaler les workspaces au dashboard"
       }
     ],
     "configuration": {
@@ -43,6 +47,16 @@
           "type": "string",
           "default": "bensouille/session-reporter-vscode",
           "description": "Dépôt GitHub contenant les releases VSIX (propriétaire/répertoire)"
+        },
+        "sessionReporter.backendUrl": {
+          "type": "string",
+          "default": "",
+          "description": "URL du dashboard backend (ex: https://dashboard.example.com). Requis pour le report de workspaces."
+        },
+        "sessionReporter.agentToken": {
+          "type": "string",
+          "default": "",
+          "description": "Token d'agent pour l'authentification X-Agent-Token. Requis pour le report de workspaces."
         }
       }
     }
