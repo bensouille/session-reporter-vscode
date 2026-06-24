@@ -41,41 +41,33 @@ export function activate(context: vscode.ExtensionContext): void {
   );
   log.appendLine("[activate] URI handler registered → vscode://remote.session-reporter/open");
 
-  // ── Auto-updater (UI only, opt-in) ─────────────────────────────────────────
-  if (kind === vscode.ExtensionKind.UI) {
-    const cfg = vscode.workspace.getConfiguration("sessionReporter");
-    if (cfg.get<boolean>("autoUpdate", false)) {
-      checkForUpdates(context);
-    }
-    context.subscriptions.push(
-      vscode.commands.registerCommand("sessionReporter.checkForUpdates", () => {
-        _checkForUpdates(context);
-      })
-    );
-  }
-
-  // ── Workspace scanner — s'exécute uniquement sur l'hôte distant ────────
-  if (kind === vscode.ExtensionKind.Workspace) {
-    log.appendLine(`[activate] remote session (${vscode.env.remoteName}) — auto-scan enabled`);
-    setTimeout(() => {
-      reportWorkspaces();
-      reportActiveWorkspace();
-    }, 5000);
-    context.subscriptions.push(
-      vscode.workspace.onDidChangeWorkspaceFolders((e) => {
-        for (const folder of e.added) sendDetected(folder.uri.fsPath);
-        for (const folder of e.removed) sendDetected(folder.uri.fsPath);
-      })
-    );
-  } else {
-    log.appendLine("[activate] local UI instance — workspace scan disabled, URI handler only");
+  // ── Auto-updater (opt-in) ────────────────────────────────────────────────
+  const cfg = vscode.workspace.getConfiguration("sessionReporter");
+  if (cfg.get<boolean>("autoUpdate", false)) {
+    checkForUpdates(context);
   }
   context.subscriptions.push(
+    vscode.commands.registerCommand("sessionReporter.checkForUpdates", () => {
+      _checkForUpdates(context);
+    })
+  );
+
+  // ── Workspace scanner ────────────────────────────────────────────────────
+  log.appendLine(`[activate] auto-scan enabled`);
+  setTimeout(() => {
+    reportWorkspaces();
+    reportActiveWorkspace();
+  }, 5000);
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders((e) => {
+      for (const folder of e.added) sendDetected(folder.uri.fsPath);
+      for (const folder of e.removed) sendDetected(folder.uri.fsPath);
+    })
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand("sessionReporter.reportWorkspaces", () => {
-      if (kind !== vscode.ExtensionKind.Workspace) {
-        vscode.window.showWarningMessage("Session Reporter: le scan fonctionne uniquement sur l'hôte distant (Remote SSH).");
-        return;
-      }
       reportWorkspaces();
     })
   );
@@ -268,6 +260,72 @@ function handleUri(uri: vscode.Uri): void {
 interface WorkspaceEntry {
   path: string;
   hostname: string;
+  techs?: string[];
+}
+
+/** Detect technologies used in a project by scanning for characteristic files. */
+function detectTechs(repoPath: string): string[] {
+  const techs: string[] = [];
+  try {
+    const entries = new Set<string>();
+    const dirEntries = fs.readdirSync(repoPath, { withFileTypes: true });
+    for (const e of dirEntries) {
+      entries.add(e.name);
+      if (e.isDirectory() && !e.name.startsWith(".") && e.name !== "node_modules") {
+        try {
+          for (const sub of fs.readdirSync(path.join(repoPath, e.name))) {
+            entries.add(sub);
+          }
+        } catch { /* skip */ }
+      }
+    }
+
+    // package.json
+    if (entries.has("package.json")) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(repoPath, "package.json"), "utf-8"));
+        const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+        if (deps.vue) techs.push("vue");
+        if (deps.react) techs.push("react");
+        if (deps.next) techs.push("nextjs");
+        if (deps.nuxt) techs.push("nuxt");
+        if (deps.svelte) techs.push("svelte");
+        if (deps.astro) techs.push("astro");
+        if (deps.typescript) techs.push("typescript");
+        if (!techs.includes("javascript")) techs.push("javascript");
+      } catch { /* ignore */ }
+    }
+
+    if (entries.has("vite.config.ts") || entries.has("vite.config.js")) {
+      if (!techs.includes("vite")) techs.push("vite");
+    }
+    if (entries.has("tailwind.config.js") || entries.has("tailwind.config.ts")) {
+      techs.push("tailwind");
+    }
+
+    // Python
+    const pyFiles = ["requirements.txt", "setup.py", "pyproject.toml", "Pipfile"];
+    if (pyFiles.some(f => entries.has(f))) {
+      techs.push("python");
+      if (entries.has("requirements.txt")) {
+        try {
+          const reqs = fs.readFileSync(path.join(repoPath, "requirements.txt"), "utf-8");
+          if (reqs.includes("fastapi")) techs.push("fastapi");
+          if (reqs.includes("django")) techs.push("django");
+          if (reqs.includes("flask")) techs.push("flask");
+        } catch { /* ignore */ }
+      }
+    }
+
+    if (entries.has("Cargo.toml")) techs.push("rust");
+    if (entries.has("go.mod")) techs.push("go");
+    if (entries.has("Gemfile")) techs.push("ruby");
+    if (entries.has("composer.json")) techs.push("php");
+    if (entries.has("wp-config.php")) techs.push("wordpress");
+    if (entries.has("Dockerfile") || entries.has("docker-compose.yml")) techs.push("docker");
+    if (entries.has("nginx.conf") || Array.from(entries).some(e => e.startsWith("nginx"))) techs.push("nginx");
+  } catch { /* permission denied or not a directory */ }
+  return techs;
 }
 
 function scanWorkspaceStorage(): WorkspaceEntry[] {
@@ -330,7 +388,8 @@ function scanWorkspaceStorage(): WorkspaceEntry[] {
         const fullPath = path.join(base, entry.name);
         if (!seen.has(fullPath)) {
           seen.add(fullPath);
-          results.push({ path: fullPath, hostname: os.hostname() });
+          const techs = detectTechs(fullPath);
+          results.push({ path: fullPath, hostname: os.hostname(), techs });
           log.appendLine(`[workspaceScan]   found: ${fullPath}`);
         }
       }
@@ -407,7 +466,11 @@ function reportWorkspaces(): void {
 
   const body = JSON.stringify({
     hostname: os.hostname(),
-    workspaces: workspaces.map(w => ({ path: w.path, name: w.path.split("/").pop() || w.path })),
+    workspaces: workspaces.map(w => ({
+      path: w.path,
+      name: w.path.split("/").pop() || w.path,
+      techs: w.techs,
+    })),
   });
 
   const apiUrl = new URL(backendUrl + "/api/v1/hosts/detected-workspaces");
@@ -456,9 +519,10 @@ function sendDetected(repoPath: string): void {
   const agentToken = cfg.get<string>("agentToken", "");
   if (!backendUrl || !agentToken) { return; }
 
+  const techs = detectTechs(repoPath);
   const body = JSON.stringify({
     hostname: os.hostname(),
-    workspaces: [{ path: repoPath, name: repoPath.split("/").pop() || repoPath }],
+    workspaces: [{ path: repoPath, name: repoPath.split("/").pop() || repoPath, techs }],
   });
 
   const apiUrl = new URL(backendUrl + "/api/v1/hosts/detected-workspaces");
