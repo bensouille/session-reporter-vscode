@@ -54,7 +54,22 @@ export function activate(context: vscode.ExtensionContext): void {
     );
   }
 
-  // ── Workspace scanner — commande manuelle uniquement ─────────────────────
+  // ── Workspace scanner — s'exécute automatiquement sur l'hôte distant ────
+  if (vscode.env.remoteName) {
+    log.appendLine(`[activate] remote session (${vscode.env.remoteName}) — auto-scan enabled`);
+    setTimeout(() => {
+      reportWorkspaces();
+      reportActiveWorkspace();
+    }, 5000);
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeWorkspaceFolders((e) => {
+        for (const folder of e.added) sendSession(folder.uri.fsPath, true);
+        for (const folder of e.removed) sendSession(folder.uri.fsPath, false);
+      })
+    );
+  } else {
+    log.appendLine("[activate] local session — URI handler only");
+  }
   context.subscriptions.push(
     vscode.commands.registerCommand("sessionReporter.reportWorkspaces", () => {
       if (!vscode.env.remoteName) {
