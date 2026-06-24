@@ -55,8 +55,11 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 
   // ── Workspace scanner (reports known workspaces to the dashboard) ──────────
-  const onWorkspace = kind === vscode.ExtensionKind.Workspace;
-  if (onWorkspace) {
+  // Ne s'exécute QUE dans une session distante (Remote SSH / Remote Tunnel)
+  // Sur le poste local (Windows), seul le URI handler est actif.
+  if (vscode.env.remoteName) {
+    log.appendLine(`[activate] remote session detected (${vscode.env.remoteName}) — enabling workspace scan`);
+
     // Report workspaces after a short delay (let VS Code finish loading)
     setTimeout(() => {
       reportWorkspaces();
@@ -75,9 +78,15 @@ export function activate(context: vscode.ExtensionContext): void {
         }
       })
     );
+  } else {
+    log.appendLine("[activate] local session — workspace scan disabled, URI handler only");
   }
   context.subscriptions.push(
     vscode.commands.registerCommand("sessionReporter.reportWorkspaces", () => {
+      if (!vscode.env.remoteName) {
+        vscode.window.showWarningMessage("Session Reporter: le scan des workspaces fonctionne uniquement en mode Remote SSH. Connectez-vous à un hôte distant d'abord.");
+        return;
+      }
       reportWorkspaces();
     })
   );
