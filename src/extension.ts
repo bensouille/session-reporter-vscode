@@ -54,8 +54,8 @@ export function activate(context: vscode.ExtensionContext): void {
     );
   }
 
-  // ── Workspace scanner — s'exécute automatiquement sur l'hôte distant ────
-  if (vscode.env.remoteName) {
+  // ── Workspace scanner — s'exécute uniquement sur l'hôte distant ────────
+  if (kind === vscode.ExtensionKind.Workspace) {
     log.appendLine(`[activate] remote session (${vscode.env.remoteName}) — auto-scan enabled`);
     setTimeout(() => {
       reportWorkspaces();
@@ -68,12 +68,12 @@ export function activate(context: vscode.ExtensionContext): void {
       })
     );
   } else {
-    log.appendLine("[activate] local session — URI handler only");
+    log.appendLine("[activate] local UI instance — workspace scan disabled, URI handler only");
   }
   context.subscriptions.push(
     vscode.commands.registerCommand("sessionReporter.reportWorkspaces", () => {
-      if (!vscode.env.remoteName) {
-        vscode.window.showWarningMessage("Session Reporter: le scan fonctionne uniquement en Remote SSH.");
+      if (kind !== vscode.ExtensionKind.Workspace) {
+        vscode.window.showWarningMessage("Session Reporter: le scan fonctionne uniquement sur l'hôte distant (Remote SSH).");
         return;
       }
       reportWorkspaces();
