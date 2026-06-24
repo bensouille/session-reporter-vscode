@@ -281,22 +281,31 @@ function scanWorkspaceStorage(): WorkspaceEntry[] {
   const home = os.homedir();
   const searchDirs: string[] = [];
 
-  // Common project locations
-  for (const dir of [
+  // Common project locations — inclut les chemins typiques des serveurs
+  const scanPaths = [
     home,
     path.join(home, "projects"),
     path.join(home, "code"),
     path.join(home, "dev"),
     path.join(home, "workspace"),
     path.join(home, "src"),
+    path.join(home, "www"),
     "/home",
     "/srv",
+    "/srv/www",
     "/var/www",
-  ]) {
+    "/var/www/html",
+    "/opt",
+    "/root",
+  ];
+  for (const dir of scanPaths) {
     if (fs.existsSync(dir)) { searchDirs.push(dir); }
   }
 
+  log.appendLine(`[workspaceScan] scanning ${searchDirs.length} directories for .git repos...`);
+
   for (const base of searchDirs) {
+    log.appendLine(`[workspaceScan] scanning ${base}...`);
     try {
       const entries = fs.readdirSync(base, { withFileTypes: true });
       for (const entry of entries) {
@@ -308,6 +317,7 @@ function scanWorkspaceStorage(): WorkspaceEntry[] {
         if (!seen.has(fullPath)) {
           seen.add(fullPath);
           results.push({ path: fullPath, hostname: os.hostname() });
+          log.appendLine(`[workspaceScan]   found: ${fullPath}`);
         }
       }
     } catch {
