@@ -22,7 +22,7 @@
     "onUri",
     "onStartupFinished"
   ],
-  "extensionKind": ["ui", "workspace"],
+  "extensionKind": ["workspace"],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [

@@ -281,23 +281,39 @@ function scanWorkspaceStorage(): WorkspaceEntry[] {
   const home = os.homedir();
   const searchDirs: string[] = [];
 
-  // Common project locations — inclut les chemins typiques des serveurs
-  const scanPaths = [
-    home,
-    path.join(home, "projects"),
-    path.join(home, "code"),
-    path.join(home, "dev"),
-    path.join(home, "workspace"),
-    path.join(home, "src"),
-    path.join(home, "www"),
-    "/home",
-    "/srv",
-    "/srv/www",
-    "/var/www",
-    "/var/www/html",
-    "/opt",
-    "/root",
-  ];
+  // Common project locations
+  const isWin = process.platform === "win32";
+  const scanPaths: string[] = [];
+
+  if (isWin) {
+    // Windows: scanner les dossiers utilisateur standard
+    scanPaths.push(home);
+    scanPaths.push(path.join(home, "source"));
+    scanPaths.push(path.join(home, "repos"));
+    scanPaths.push(path.join(home, "projects"));
+    scanPaths.push(path.join(home, "code"));
+    // Ajouter les autres lecteurs Windows
+    for (const drive of ["D:\\", "E:\\", "F:\\", "G:\\"]) {
+      if (fs.existsSync(drive)) scanPaths.push(drive);
+    }
+  } else {
+    // Linux / Remote: chemins standards + common server paths
+    scanPaths.push(home);
+    scanPaths.push(path.join(home, "projects"));
+    scanPaths.push(path.join(home, "code"));
+    scanPaths.push(path.join(home, "dev"));
+    scanPaths.push(path.join(home, "workspace"));
+    scanPaths.push(path.join(home, "src"));
+    scanPaths.push(path.join(home, "www"));
+    scanPaths.push("/home");
+    scanPaths.push("/srv");
+    scanPaths.push("/srv/www");
+    scanPaths.push("/var/www");
+    scanPaths.push("/var/www/html");
+    scanPaths.push("/opt");
+    scanPaths.push("/root");
+  }
+
   for (const dir of scanPaths) {
     if (fs.existsSync(dir)) { searchDirs.push(dir); }
   }
