@@ -63,8 +63,8 @@ export function activate(context: vscode.ExtensionContext): void {
     }, 5000);
     context.subscriptions.push(
       vscode.workspace.onDidChangeWorkspaceFolders((e) => {
-        for (const folder of e.added) sendSession(folder.uri.fsPath, true);
-        for (const folder of e.removed) sendSession(folder.uri.fsPath, false);
+        for (const folder of e.added) sendDetected(folder.uri.fsPath);
+        for (const folder of e.removed) sendDetected(folder.uri.fsPath);
       })
     );
   } else {
@@ -382,7 +382,9 @@ async function configure(context: vscode.ExtensionContext): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Workspace scanner — report known remote workspaces to the dashboard
+// Workspace scanner — report detected workspaces to the dashboard
+// Workspaces are stored in detected_workspaces_json (NOT as sessions).
+// The user reviews & adds them via the Scanner UI in the dashboard.
 // ---------------------------------------------------------------------------
 
 function reportWorkspaces(): void {
@@ -403,56 +405,12 @@ function reportWorkspaces(): void {
 
   log.appendLine(`[workspaceScan] reporting ${workspaces.length} workspaces to ${backendUrl}`);
 
-  let completed = 0;
-  let failed = 0;
-
-  for (const ws of workspaces) {
-    sendSession(ws.path, true, backendUrl, agentToken, ws.hostname, (ok) => {
-      if (ok) completed++; else failed++;
-      if (completed + failed === workspaces.length) {
-        log.appendLine(`[workspaceScan] done: ${completed} ok, ${failed} failed`);
-      }
-    });
-  }
-}
-
-/** Report the currently opened workspace (if any) as active. */
-function reportActiveWorkspace(): void {
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  if (folder) {
-    log.appendLine(`[activeWorkspace] reporting current workspace: ${folder.uri.fsPath}`);
-    sendSession(folder.uri.fsPath, true);
-  }
-}
-
-/** Send a single session to the backend. */
-function sendSession(
-  repoPath: string,
-  isActive: boolean,
-  backendUrl?: string,
-  agentToken?: string,
-  hostname?: string,
-  callback?: (ok: boolean) => void
-): void {
-  const cfg = vscode.workspace.getConfiguration("sessionReporter");
-  const url = backendUrl || cfg.get<string>("backendUrl", "").replace(/\/+$/, "");
-  const token = agentToken || cfg.get<string>("agentToken", "");
-
-  if (!url || !token) {
-    log.appendLine("[sendSession] backendUrl or agentToken not configured — skipping");
-    callback?.(false);
-    return;
-  }
-
-  const host = hostname || os.hostname();
   const body = JSON.stringify({
-    hostname: host,
-    repo: repoPath,
-    vscode_url: `vscode://remote.session-reporter/open?remote=${encodeURIComponent(host)}&folder=${encodeURIComponent(repoPath)}`,
-    is_active: isActive,
+    hostname: os.hostname(),
+    workspaces: workspaces.map(w => ({ path: w.path, name: w.path.split("/").pop() || w.path })),
   });
 
-  const apiUrl = new URL(url + "/api/v1/hosts/session-sync");
+  const apiUrl = new URL(backendUrl + "/api/v1/hosts/detected-workspaces");
   const options: https.RequestOptions = {
     hostname: apiUrl.hostname,
     port: apiUrl.port || (apiUrl.protocol === "https:" ? 443 : 80),
@@ -461,7 +419,7 @@ function sendSession(
     headers: {
       "Content-Type": "application/json",
       "Content-Length": Buffer.byteLength(body),
-      "X-Agent-Token": token,
+      "X-Agent-Token": agentToken,
       "User-Agent": "session-reporter-vscode",
     },
   };
@@ -472,16 +430,54 @@ function sendSession(
     res.on("data", (chunk: string) => { data += chunk; });
     res.on("end", () => {
       const ok = res.statusCode === 200 || res.statusCode === 201;
-      if (!ok) {
-        log.appendLine(`[sendSession] ${host}:${repoPath} → ${res.statusCode}`);
-      }
-      callback?.(ok);
+      log.appendLine(`[workspaceScan] done: ${ok ? "OK" : "failed " + res.statusCode}`);
     });
   });
   req.on("error", (e: Error) => {
-    log.appendLine(`[sendSession] ${host}:${repoPath} error: ${e.message}`);
-    callback?.(false);
+    log.appendLine(`[workspaceScan] error: ${e.message}`);
   });
+  req.write(body);
+  req.end();
+}
+
+/** Report the currently opened workspace (if any) as detected. */
+function reportActiveWorkspace(): void {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (folder) {
+    log.appendLine(`[activeWorkspace] detected: ${folder.uri.fsPath}`);
+    sendDetected(folder.uri.fsPath);
+  }
+}
+
+/** Send a single detected workspace path to the backend. */
+function sendDetected(repoPath: string): void {
+  const cfg = vscode.workspace.getConfiguration("sessionReporter");
+  const backendUrl = cfg.get<string>("backendUrl", "").replace(/\/+$/, "");
+  const agentToken = cfg.get<string>("agentToken", "");
+  if (!backendUrl || !agentToken) { return; }
+
+  const body = JSON.stringify({
+    hostname: os.hostname(),
+    workspaces: [{ path: repoPath, name: repoPath.split("/").pop() || repoPath }],
+  });
+
+  const apiUrl = new URL(backendUrl + "/api/v1/hosts/detected-workspaces");
+  const options: https.RequestOptions = {
+    hostname: apiUrl.hostname,
+    port: apiUrl.port || (apiUrl.protocol === "https:" ? 443 : 80),
+    path: apiUrl.pathname + apiUrl.search,
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(body),
+      "X-Agent-Token": agentToken,
+      "User-Agent": "session-reporter-vscode",
+    },
+  };
+
+  const transport = apiUrl.protocol === "https:" ? https : http;
+  const req = transport.request(options);
+  req.on("error", (e: Error) => log.appendLine(`[sendDetected] error: ${e.message}`));
   req.write(body);
   req.end();
 }
